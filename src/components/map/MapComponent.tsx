@@ -5,6 +5,8 @@ import { useRouteStore } from '../../store/useRouteStore';
 import { getCoordinateAtDistance, getDistanceAtCoordinate } from '../../lib/geoUtils';
 import MapStyleSwitcher from './MapStyleSwitcher';
 import type { MapStyle } from './MapStyleSwitcher';
+import { Play, Square } from 'lucide-react';
+import { renderToStaticMarkup } from 'react-dom/server';
 
 mapboxgl.accessToken = import.meta.env.VITE_MAPBOX_TOKEN;
 
@@ -30,8 +32,11 @@ const MapComponent = () => {
     // Track dragging to toggle cursor
     const [isDragging, setIsDragging] = useState(false);
 
+    // Track state in refs for listeners to avoid closures
+    const routeGeoJsonRef = useRef(routeGeoJson);
+    useEffect(() => { routeGeoJsonRef.current = routeGeoJson; }, [routeGeoJson]);
+
     // Reusable function to setup sources and layers
-    // Called on initial load AND every time the style changes
     const setupMapLayers = useCallback(() => {
         if (!map.current) return;
 
@@ -39,7 +44,7 @@ const MapComponent = () => {
         if (!map.current.getSource('route')) {
             map.current.addSource('route', {
                 type: 'geojson',
-                data: routeGeoJson || { type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: [] } }
+                data: routeGeoJsonRef.current || { type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: [] } }
             });
         }
 
@@ -61,7 +66,7 @@ const MapComponent = () => {
                     'line-cap': 'round'
                 },
                 paint: {
-                    'line-color': '#2563eb', // blue-600
+                    'line-color': '#2563eb',
                     'line-width': 4,
                     'line-opacity': 0.8
                 }
@@ -94,7 +99,7 @@ const MapComponent = () => {
                 }
             });
         }
-    }, [routeGeoJson]);
+    }, []);
 
     // Initialize Map
     useEffect(() => {
@@ -261,9 +266,7 @@ const MapComponent = () => {
 
         // Add/Update markers
         waypoints.forEach((wp, index) => {
-            // Only render visual markers (Start, End, POI)
             if (wp.type === 'route') {
-                // Remove if exists
                 if (markersRef.current[wp.id]) {
                     markersRef.current[wp.id].remove();
                     delete markersRef.current[wp.id];
@@ -273,36 +276,33 @@ const MapComponent = () => {
 
             if (!markersRef.current[wp.id]) {
                 const el = document.createElement('div');
+                let color = '#2563eb';
+                let iconMarkup = '';
 
-                // Styling based on type
-                let bgClass = 'bg-blue-600';
-                if (wp.type === 'start') bgClass = 'bg-green-600';
-                if (wp.type === 'end') bgClass = 'bg-red-600';
-                if (wp.type === 'poi') bgClass = 'bg-purple-600';
+                if (wp.type === 'start') {
+                    color = '#16a34a'; // green-600
+                    iconMarkup = renderToStaticMarkup(<Play size={10} fill="white" className="ml-0.5" />);
+                } else if (wp.type === 'end') {
+                    color = '#dc2626'; // red-600
+                    iconMarkup = renderToStaticMarkup(<Square size={8} fill="white" />);
+                } else {
+                    el.innerText = (index + 1).toString();
+                    el.className = 'text-white text-[10px] font-bold';
+                }
 
-                el.className = `w-6 h-6 ${bgClass} rounded-full border-2 border-white shadow-lg flex items-center justify-center text-white text-[10px] font-bold`;
+                const container = document.createElement('div');
+                container.className = `w-6 h-6 rounded-full border-2 border-white shadow-lg flex items-center justify-center transition-transform hover:scale-110 cursor-pointer`;
+                container.style.backgroundColor = color;
+                if (iconMarkup) container.innerHTML = iconMarkup;
+                else container.appendChild(el);
 
-                // Content based on type
-                if (wp.type === 'start') el.innerText = 'S';
-                else if (wp.type === 'end') el.innerText = 'E';
-                else el.innerText = (index + 1).toString();
-
-                const marker = new mapboxgl.Marker(el)
+                const marker = new mapboxgl.Marker(container)
                     .setLngLat([wp.lng, wp.lat])
                     .addTo(map.current!);
 
                 markersRef.current[wp.id] = marker;
             } else {
                 markersRef.current[wp.id].setLngLat([wp.lng, wp.lat]);
-
-                // Update styling if type changed (e.g. End became Route or End changed position? 
-                // Actually 'end' moves to new point, old point becomes 'route'. 
-                // So the old ID's marker needs to be removed (handled above) 
-                // or updated if we kept the ID? 
-                // No, new point has new ID. Old point has old ID.
-                // Old point type changed to 'route' in store. 
-                // So it will be caught by the "if route remove" block above on re-render.
-                // This block is for existing markers that are still visible.
             }
         });
     }, [waypoints]);

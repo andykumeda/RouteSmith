@@ -27,12 +27,14 @@ interface RouteState {
     segments: Segment[];
     routeGeoJson: GeoJSON.Feature<GeoJSON.LineString> | null;
     totalDistance: number;
-    totalElevationGain: number; // Track total gain
+    totalElevationGain: number;
     elevationProfile: ElevationPoint[];
+    minElevation: number | null;
+    maxElevation: number | null;
     isFetching: boolean;
     shouldFitBounds: boolean;
     routeName: string;
-    routeId: string | null; // Track loaded/saved route ID
+    routeId: string | null;
     hoveredDistance: number | null;
     isReadOnly: boolean;
     isManualMode: boolean;
@@ -57,6 +59,8 @@ export const useRouteStore = create<RouteState>((set, get) => ({
     totalDistance: 0,
     totalElevationGain: 0,
     elevationProfile: [],
+    minElevation: null,
+    maxElevation: null,
     isFetching: false,
     shouldFitBounds: false,
     routeName: "New Route",
@@ -76,9 +80,7 @@ export const useRouteStore = create<RouteState>((set, get) => ({
 
         if (isReadOnly) return;
 
-        // Auto-name for first point if name is generic
         if (waypoints.length === 0 && (routeName === "New Route" || routeName === "")) {
-            // Fire and forget - don't block
             getPlaceName(lng, lat).then(name => {
                 if (name) {
                     set({ routeName: `Route near ${name}` });
@@ -93,7 +95,6 @@ export const useRouteStore = create<RouteState>((set, get) => ({
             type: waypoints.length === 0 ? 'start' : 'end'
         };
 
-        // If it's the first point, just add it
         if (waypoints.length === 0) {
             set({ waypoints: [newWaypoint] });
             return;
@@ -101,11 +102,9 @@ export const useRouteStore = create<RouteState>((set, get) => ({
 
         set({ isFetching: true });
 
-        // Get last waypoint to route from
         const lastWaypoint = waypoints[waypoints.length - 1];
         let directionData = null;
 
-        // Fetch directions ONLY if not in manual mode
         if (!isManualMode) {
             directionData = await getDirections(
                 [lastWaypoint.lng, lastWaypoint.lat],
@@ -123,7 +122,6 @@ export const useRouteStore = create<RouteState>((set, get) => ({
                 distance: directionData.distance,
             };
         } else {
-            // Manual Mode OR Fallback: Straight line
             newSegment = {
                 id: crypto.randomUUID(),
                 geometry: {
@@ -137,28 +135,24 @@ export const useRouteStore = create<RouteState>((set, get) => ({
             };
         }
 
-        // Now Fetch Elevation for the segment geometry
         const segmentCoords = newSegment.geometry.coordinates;
         const elevations = await getElevationData(segmentCoords);
 
-        // Map elevations to distances within the segment
         const mappedElevationProfile: ElevationPoint[] = [];
         if (elevations.length > 0) {
             for (let i = 0; i < elevations.length; i++) {
                 const percent = i / (elevations.length - 1 || 1);
                 const distFromSegmentStart = percent * newSegment.distance;
                 mappedElevationProfile.push({
-                    distance: distFromSegmentStart, // relative to segment
+                    distance: distFromSegmentStart,
                     elevation: elevations[i]
                 });
             }
             newSegment.elevationProfile = mappedElevationProfile;
         }
 
-
         const newSegments = [...segments, newSegment];
 
-        // Update previous 'end' point to 'route' (hidden)
         const updatedWaypoints = waypoints.map((wp, i) =>
             (i === waypoints.length - 1 && wp.type === 'end')
                 ? { ...wp, type: 'route' as const }
@@ -167,7 +161,6 @@ export const useRouteStore = create<RouteState>((set, get) => ({
 
         const newWaypoints = [...updatedWaypoints, newWaypoint];
 
-        // Combine all segments into one LineString for the map
         const allCoordinates = newSegments.flatMap(seg => seg.geometry.coordinates);
 
         const newRouteGeoJson: GeoJSON.Feature<GeoJSON.LineString> = {
@@ -181,30 +174,31 @@ export const useRouteStore = create<RouteState>((set, get) => ({
 
         const newTotalDistance = newSegments.reduce((acc, seg) => acc + seg.distance, 0);
 
-        // Rebuild full cumulative elevation profile AND calculate gain
         let currentCumulativeDist = 0;
         const fullElevationProfile: ElevationPoint[] = [];
         let elevationGain = 0;
-        const GAIN_THRESHOLD = 2.0; // Ignore jitters less than 2m
+        const GAIN_THRESHOLD = 2.0;
+
+        let minElev = Infinity;
+        let maxElev = -Infinity;
 
         newSegments.forEach(seg => {
             if (seg.elevationProfile && seg.elevationProfile.length > 0) {
-                // Tracking within the segment
                 let referenceElev = seg.elevationProfile[0].elevation;
 
                 seg.elevationProfile.forEach(point => {
-                    // Add to profile
                     fullElevationProfile.push({
                         distance: currentCumulativeDist + point.distance,
                         elevation: point.elevation
                     });
 
-                    // Hysteresis Gain Calculation
+                    if (point.elevation < minElev) minElev = point.elevation;
+                    if (point.elevation > maxElev) maxElev = point.elevation;
+
                     if (point.elevation > referenceElev + GAIN_THRESHOLD) {
                         elevationGain += (point.elevation - referenceElev);
                         referenceElev = point.elevation;
                     } else if (point.elevation < referenceElev) {
-                        // Update reference downward to catch new climbs from a lower point
                         referenceElev = point.elevation;
                     }
                 });
@@ -219,6 +213,8 @@ export const useRouteStore = create<RouteState>((set, get) => ({
             totalDistance: newTotalDistance,
             elevationProfile: fullElevationProfile,
             totalElevationGain: elevationGain,
+            minElevation: minElev === Infinity ? null : minElev,
+            maxElevation: maxElev === -Infinity ? null : maxElev,
             isFetching: false
         });
     },
@@ -227,30 +223,20 @@ export const useRouteStore = create<RouteState>((set, get) => ({
         const { waypoints, segments, isReadOnly } = get();
         if (isReadOnly || waypoints.length === 0) return;
 
-        // If only 1 waypoint, clear everything
         if (waypoints.length === 1) {
             get().clearRoute();
             return;
         }
 
-        // Remove last waypoint
         const newWaypoints = waypoints.slice(0, -1);
-
-        // Restore the new last waypoint to 'end' type
         newWaypoints[newWaypoints.length - 1] = {
             ...newWaypoints[newWaypoints.length - 1],
             type: 'end'
         };
 
-        // Remove last segment
         const newSegments = segments.slice(0, -1);
-
-        // Re-calculate totals (Copy-paste logic from addWaypoint or abstract it)
-        // For efficiency, let's just re-run the aggregation logic
-
         const allCoordinates = newSegments.flatMap(seg => seg.geometry.coordinates);
 
-        // If no segments left (e.g. undo back to start point), route is empty
         let newRouteGeoJson: GeoJSON.Feature<GeoJSON.LineString> | null = null;
 
         if (allCoordinates.length > 0) {
@@ -270,6 +256,8 @@ export const useRouteStore = create<RouteState>((set, get) => ({
         const fullElevationProfile: ElevationPoint[] = [];
         let elevationGain = 0;
         const GAIN_THRESHOLD = 2.0;
+        let minElev = Infinity;
+        let maxElev = -Infinity;
 
         newSegments.forEach(seg => {
             if (seg.elevationProfile && seg.elevationProfile.length > 0) {
@@ -280,6 +268,9 @@ export const useRouteStore = create<RouteState>((set, get) => ({
                         distance: currentCumulativeDist + point.distance,
                         elevation: point.elevation
                     });
+
+                    if (point.elevation < minElev) minElev = point.elevation;
+                    if (point.elevation > maxElev) maxElev = point.elevation;
 
                     if (point.elevation > referenceElev + GAIN_THRESHOLD) {
                         elevationGain += (point.elevation - referenceElev);
@@ -298,19 +289,15 @@ export const useRouteStore = create<RouteState>((set, get) => ({
             routeGeoJson: newRouteGeoJson,
             totalDistance: newTotalDistance,
             elevationProfile: fullElevationProfile,
-            totalElevationGain: elevationGain
+            totalElevationGain: elevationGain,
+            minElevation: minElev === Infinity ? null : minElev,
+            maxElevation: maxElev === -Infinity ? null : maxElev,
         });
     },
 
     removeWaypoint: (id) => {
         if (get().isReadOnly) return;
         set((state) => {
-            // Simplified removal for MVP - Reset everything if removing intermediate points is too complex
-            // Ideally we should stitch the route back together, but that requires re-fetching directions.
-            // For now, if you remove a point, let's just remove it and reset geometry (force user to redraw or just broken route?)
-            // Actually, best "remove" UX for line-based routing is usually just 'Undo'.
-            // Removing a middle pin is complex.
-            // Let's defer complex removal. 
             const newWaypoints = state.waypoints.filter((wp) => wp.id !== id);
             return {
                 waypoints: newWaypoints,
@@ -318,7 +305,9 @@ export const useRouteStore = create<RouteState>((set, get) => ({
                 routeGeoJson: null,
                 totalDistance: 0,
                 totalElevationGain: 0,
-                elevationProfile: []
+                elevationProfile: [],
+                minElevation: null,
+                maxElevation: null
             };
         });
     },
@@ -330,6 +319,8 @@ export const useRouteStore = create<RouteState>((set, get) => ({
         totalDistance: 0,
         totalElevationGain: 0,
         elevationProfile: [],
+        minElevation: null,
+        maxElevation: null,
         shouldFitBounds: false,
         routeName: "New Route",
         hoveredDistance: null,
@@ -339,44 +330,42 @@ export const useRouteStore = create<RouteState>((set, get) => ({
     setShouldFitBounds: (should: boolean) => set({ shouldFitBounds: should }),
 
     setRouteFromImport: (featureCollection: GeoJSON.FeatureCollection) => {
-        // Find first LineString
         const trackFeature = featureCollection.features.find(f => f.geometry.type === 'LineString') as GeoJSON.Feature<GeoJSON.LineString> | undefined;
 
         if (!trackFeature) return;
 
-        // Extract Name
         const importedName = trackFeature.properties?.name || "Imported Route";
-
         const coords = trackFeature.geometry.coordinates;
         if (coords.length < 2) return;
 
-        // Create Waypoints (Start and End only for now to "lock" the route)
         const startCoord = coords[0];
         const endCoord = coords[coords.length - 1];
 
         const startWP: Waypoint = { id: crypto.randomUUID(), lng: startCoord[0], lat: startCoord[1], type: 'start' };
         const endWP: Waypoint = { id: crypto.randomUUID(), lng: endCoord[0], lat: endCoord[1], type: 'end' };
 
-        // Calculate stats from the track
         let dist = 0;
         let gain = 0;
         const GAIN_THRESHOLD = 2.0;
         const elevationProfile: ElevationPoint[] = [];
         let referenceElev = coords[0][2] || 0;
+        let minElev = Infinity;
+        let maxElev = -Infinity;
 
         for (let i = 0; i < coords.length; i++) {
             const curr = coords[i];
             const prev = i > 0 ? coords[i - 1] : curr;
 
-            // Distance
             if (i > 0) {
                 dist += calculateDistance(prev[1], prev[0], curr[1], curr[0]);
             }
 
-            // Elevation
             const ele = curr[2] || 0;
             if (ele !== undefined) {
                 elevationProfile.push({ distance: dist, elevation: ele });
+                if (ele < minElev) minElev = ele;
+                if (ele > maxElev) maxElev = ele;
+
                 if (ele > referenceElev + GAIN_THRESHOLD) {
                     gain += (ele - referenceElev);
                     referenceElev = ele;
@@ -386,7 +375,6 @@ export const useRouteStore = create<RouteState>((set, get) => ({
             }
         }
 
-        // Create a single "Custom/Imported" segment
         const segment: Segment = {
             id: crypto.randomUUID(),
             geometry: trackFeature.geometry,
@@ -401,6 +389,8 @@ export const useRouteStore = create<RouteState>((set, get) => ({
             totalDistance: dist,
             totalElevationGain: gain,
             elevationProfile: elevationProfile,
+            minElevation: minElev === Infinity ? null : minElev,
+            maxElevation: maxElev === -Infinity ? null : maxElev,
             isFetching: false,
             shouldFitBounds: true,
             routeName: importedName,

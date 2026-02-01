@@ -34,7 +34,9 @@ function App() {
     routeId,
     setRouteId,
     isReadOnly,
-    setReadOnly
+    setReadOnly,
+    minElevation,
+    maxElevation
   } = useRouteStore();
 
   const { units } = useSettingsStore();
@@ -152,6 +154,10 @@ function App() {
     ? `${Math.round(totalElevationGain)} m`
     : `${Math.round(totalElevationGain * 3.28084)} ft`;
 
+  const highLowDisplay = units === 'metric'
+    ? { high: `${Math.round(maxElevation ?? 0)} m`, low: `${Math.round(minElevation ?? 0)} m` }
+    : { high: `${Math.round((maxElevation ?? 0) * 3.28084)} ft`, low: `${Math.round((minElevation ?? 0) * 3.28084)} ft` };
+
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-gray-100 font-sans text-gray-900">
       <AuthModal isOpen={isAuthModalOpen} onClose={() => setAuthModalOpen(false)} />
@@ -240,12 +246,34 @@ function App() {
                     {elevationDisplay}
                   </div>
                 </div>
+
+                {/* High/Low */}
+                <div className="border-t border-slate-200/60 pt-4 mt-2 grid grid-cols-2 gap-4">
+                  <div>
+                    <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-0.5">Highest</div>
+                    <div className="text-sm font-bold text-slate-700">{highLowDisplay.high}</div>
+                  </div>
+                  <div>
+                    <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-0.5">Lowest</div>
+                    <div className="text-sm font-bold text-slate-700">{highLowDisplay.low}</div>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
 
           {/* Actions */}
           <div className="flex flex-col gap-3">
+            {/* My Routes (Moved Above) */}
+            {user && (
+              <button
+                onClick={() => setDashboardOpen(true)}
+                className="w-full py-2.5 px-4 bg-white text-gray-700 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors font-semibold shadow-sm flex items-center justify-center gap-2 mb-1"
+              >
+                <BookOpen size={18} className="text-blue-500" /> My Saved Routes
+              </button>
+            )}
+
             {/* Mode Toggle */}
             {isReadOnly ? (
               <button
@@ -264,7 +292,7 @@ function App() {
                       : 'text-gray-500 hover:bg-gray-200'
                       }`}
                   >
-                    <span className="w-2 h-2 rounded-full bg-blue-500"></span> Auto Snap
+                    <span className="w-2 h-2 rounded-full bg-blue-500"></span> Auto
                   </button>
                   <button
                     onClick={() => useRouteStore.getState().setManualMode(true)}
