@@ -164,7 +164,7 @@ const MapComponent = () => {
 
         const geolocate = new mapboxgl.GeolocateControl({
             positionOptions: { enableHighAccuracy: true },
-            trackUserLocation: true,
+            trackUserLocation: false, // Don't fight the user by re-centering on every GPS jitter
             showUserHeading: true,
             fitBoundsOptions: {
                 maxZoom: 11 // Limit zoom level when locating user
@@ -183,7 +183,10 @@ const MapComponent = () => {
 
         map.current.on('load', () => {
             setTimeout(() => {
-                geolocate.trigger();
+                // Only auto-locate if we don't have a route yet
+                if (useRouteStore.getState().waypoints.length === 0) {
+                    geolocate.trigger();
+                }
             }, 1000);
 
             map.current?.on('click', (e) => {
