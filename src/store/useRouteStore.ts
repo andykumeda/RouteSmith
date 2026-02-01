@@ -2,12 +2,15 @@ import { create } from 'zustand';
 import { getDirections, getElevationData, getPlaceName } from '../lib/mapboxUtils';
 import { calculateDistance } from '../lib/geoUtils';
 
+export type POIType = 'water' | 'hazard' | 'closed' | 'camera';
+
 export interface Waypoint {
     id: string;
     lng: number;
     lat: number;
     elevation?: number;
     type: 'start' | 'end' | 'route' | 'poi'; // Visual type
+    poiType?: POIType;
 }
 
 interface Segment {
@@ -40,6 +43,7 @@ interface RouteState {
     isManualMode: boolean;
 
     addWaypoint: (lng: number, lat: number) => Promise<void>;
+    addPOI: (lng: number, lat: number, type: POIType) => void;
     removeWaypoint: (id: string) => void;
     undoLastWaypoint: () => void;
     clearRoute: () => void;
@@ -224,6 +228,21 @@ export const useRouteStore = create<RouteState>((set, get) => ({
         });
     },
 
+    addPOI: (lng, lat, type) => {
+        const { waypoints, isReadOnly } = get();
+        if (isReadOnly) return;
+
+        const newPOI: Waypoint = {
+            id: crypto.randomUUID(),
+            lng,
+            lat,
+            type: 'poi',
+            poiType: type
+        };
+
+        set({ waypoints: [...waypoints, newPOI] });
+    },
+
     undoLastWaypoint: () => {
         const { waypoints, segments, isReadOnly } = get();
         if (isReadOnly || waypoints.length === 0) return;
@@ -233,13 +252,22 @@ export const useRouteStore = create<RouteState>((set, get) => ({
             return;
         }
 
-        const newWaypoints = waypoints.slice(0, -1);
-        newWaypoints[newWaypoints.length - 1] = {
-            ...newWaypoints[newWaypoints.length - 1],
-            type: 'end'
-        };
+        const lastWP = waypoints[waypoints.length - 1];
+        const isRoutePoint = lastWP.type === 'start' || lastWP.type === 'end' || lastWP.type === 'route';
 
-        const newSegments = segments.slice(0, -1);
+        const newWaypoints = waypoints.slice(0, -1);
+
+        // Ensure the new "last" point is marked as end if it was part of the route
+        const lastStillHere = newWaypoints[newWaypoints.length - 1];
+        if (isRoutePoint && (lastStillHere.type === 'route' || lastStillHere.type === 'start')) {
+            newWaypoints[newWaypoints.length - 1] = {
+                ...lastStillHere,
+                type: lastStillHere.type === 'start' ? 'start' : 'end'
+            };
+        }
+
+        // Only remove segment if we removed a route point
+        const newSegments = isRoutePoint ? segments.slice(0, -1) : segments;
         const allCoordinates = newSegments.flatMap(seg => seg.geometry.coordinates);
 
         let newRouteGeoJson: GeoJSON.FeatureCollection | null = null;

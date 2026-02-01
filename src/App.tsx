@@ -124,7 +124,8 @@ function App() {
   };
 
   const handleExport = () => {
-    const gpxString = exportToGpx(routeGeoJson, elevationProfile, routeName);
+    const { waypoints } = useRouteStore.getState();
+    const gpxString = exportToGpx(routeGeoJson, elevationProfile, routeName, waypoints);
     if (!gpxString) return;
     const safeName = routeName.replace(/[^a-z0-9]/gi, '_').toLowerCase() || 'route';
     const blob = new Blob([gpxString], { type: 'application/gpx+xml' });

@@ -11,7 +11,8 @@ interface ElevationPoint {
 export const exportToGpx = (
     routeGeoJson: GeoJSON.FeatureCollection | GeoJSON.Feature<GeoJSON.LineString> | null,
     elevationProfile: ElevationPoint[],
-    routeName: string = "Exported Route"
+    routeName: string = "Exported Route",
+    waypoints: any[] = []
 ): string => {
     if (!routeGeoJson) return '';
 
@@ -32,6 +33,16 @@ export const exportToGpx = (
     <name>${routeName}</name>
     <trkseg>
 `;
+
+    // waypoint points
+    let wptSection = '';
+    waypoints.filter(wp => wp.type === 'poi').forEach(wp => {
+        const name = wp.poiType ? wp.poiType.charAt(0).toUpperCase() + wp.poiType.slice(1) : 'Waypoint';
+        wptSection += `  <wpt lat="${wp.lat}" lon="${wp.lng}">\n    <name>${name}</name>\n    <sym>${name}</sym>\n  </wpt>\n`;
+    });
+
+    // Merge wptSection into Header
+    gpx = gpx.replace('<trk>', wptSection + '  <trk>');
 
     // track points
     // We try to match elevation to coordinates.

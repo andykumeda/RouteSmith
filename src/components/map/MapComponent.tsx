@@ -5,8 +5,9 @@ import { useRouteStore } from '../../store/useRouteStore';
 import { getCoordinateAtDistance, getDistanceAtCoordinate } from '../../lib/geoUtils';
 import MapStyleSwitcher from './MapStyleSwitcher';
 import type { MapStyle } from './MapStyleSwitcher';
-import { Play, Square } from 'lucide-react';
+import { Play, Square, Droplets, TriangleAlert, CircleSlash, Camera, X } from 'lucide-react';
 import { renderToStaticMarkup } from 'react-dom/server';
+import type { POIType } from '../../store/useRouteStore';
 
 mapboxgl.accessToken = import.meta.env.VITE_MAPBOX_TOKEN;
 
@@ -19,7 +20,11 @@ const STYLE_URLS: Record<MapStyle, string> = {
 const MapComponent = () => {
     const mapContainer = useRef<HTMLDivElement>(null);
     const map = useRef<mapboxgl.Map | null>(null);
-    const { waypoints, addWaypoint, routeGeoJson, hoveredDistance, setHoveredDistance, isReadOnly } = useRouteStore();
+    const { waypoints, addWaypoint, addPOI, routeGeoJson, hoveredDistance, setHoveredDistance, isReadOnly } = useRouteStore();
+
+    const [selectedPOIType, setSelectedPOIType] = useState<POIType | null>(null);
+    const selectedPOITypeRef = useRef(selectedPOIType);
+    useEffect(() => { selectedPOITypeRef.current = selectedPOIType; }, [selectedPOIType]);
 
     const [viewState, setViewState] = useState({
         zoom: 10,
@@ -182,7 +187,14 @@ const MapComponent = () => {
             }, 1000);
 
             map.current?.on('click', (e) => {
-                if (!useRouteStore.getState().isReadOnly) {
+                const state = useRouteStore.getState();
+                if (state.isReadOnly) return;
+
+                const poiType = selectedPOITypeRef.current;
+                if (poiType) {
+                    addPOI(e.lngLat.lng, e.lngLat.lat, poiType);
+                    setSelectedPOIType(null); // Reset after placement
+                } else {
                     addWaypoint(e.lngLat.lng, e.lngLat.lat);
                 }
             });
@@ -242,6 +254,25 @@ const MapComponent = () => {
                 } else if (wp.type === 'end') {
                     color = '#dc2626'; // red-600
                     iconMarkup = renderToStaticMarkup(<Square size={8} fill="white" />);
+                } else if (wp.type === 'poi') {
+                    if (wp.poiType === 'water') {
+                        color = '#3b82f6'; // blue-500
+                        iconMarkup = renderToStaticMarkup(<Droplets size={12} className="text-white" />);
+                    } else if (wp.poiType === 'hazard') {
+                        color = '#f59e0b'; // amber-500
+                        iconMarkup = renderToStaticMarkup(<TriangleAlert size={12} className="text-white" />);
+                    } else if (wp.poiType === 'closed') {
+                        color = '#ef4444'; // red-500
+                        iconMarkup = renderToStaticMarkup(<CircleSlash size={12} className="text-white" />);
+                    } else if (wp.poiType === 'camera') {
+                        color = '#a855f7'; // purple-500
+                        iconMarkup = renderToStaticMarkup(<Camera size={12} className="text-white" />);
+                    } else {
+                        // Generic POI
+                        color = '#64748b'; // slate-500
+                        el.innerText = (index + 1).toString();
+                        el.className = 'text-white text-[10px] font-bold';
+                    }
                 } else {
                     el.innerText = (index + 1).toString();
                     el.className = 'text-white text-[10px] font-bold';
@@ -268,10 +299,40 @@ const MapComponent = () => {
         <div className="relative w-full h-full">
             <div
                 ref={mapContainer}
-                className={`w-full h-full ${(!isReadOnly && !isDragging) ? '[&_.mapboxgl-canvas]:!cursor-crosshair' : ''}`}
+                className={`w-full h-full ${(!isReadOnly && !isDragging) ? (selectedPOIType ? '[&_.mapboxgl-canvas]:!cursor-copy' : '[&_.mapboxgl-canvas]:!cursor-crosshair') : ''}`}
             />
 
             <MapStyleSwitcher currentStyle={mapStyle} onStyleChange={setMapStyle} />
+
+            {/* POI Toolbar */}
+            {!isReadOnly && (
+                <div className="absolute bottom-10 left-4 z-10 flex flex-col gap-2 p-1.5 bg-white/90 backdrop-blur-sm rounded-xl shadow-lg border border-gray-200">
+                    {[
+                        { type: 'water' as POIType, icon: <Droplets size={18} />, color: 'text-blue-500', label: 'Water' },
+                        { type: 'hazard' as POIType, icon: <TriangleAlert size={18} />, color: 'text-amber-500', label: 'Hazard' },
+                        { type: 'closed' as POIType, icon: <CircleSlash size={18} />, color: 'text-red-500', label: 'Closed' },
+                        { type: 'camera' as POIType, icon: <Camera size={18} />, color: 'text-purple-500', label: 'Photo Op' },
+                    ].map((poi) => (
+                        <button
+                            key={poi.type}
+                            onClick={() => setSelectedPOIType(selectedPOIType === poi.type ? null : poi.type)}
+                            className={`p-2.5 rounded-lg transition-all flex items-center justify-center hover:scale-110 ${selectedPOIType === poi.type ? 'bg-gray-100 ring-2 ring-blue-400' : 'hover:bg-gray-50'}`}
+                            title={poi.label}
+                        >
+                            <span className={poi.color}>{poi.icon}</span>
+                        </button>
+                    ))}
+                    {selectedPOIType && (
+                        <button
+                            onClick={() => setSelectedPOIType(null)}
+                            className="p-1 mt-1 text-gray-400 hover:text-gray-600 self-center"
+                            title="Cancel POI"
+                        >
+                            <X size={14} />
+                        </button>
+                    )}
+                </div>
+            )}
 
             {/* Info Overlay */}
             <div className="absolute top-4 left-1/2 transform -translate-x-1/2 bg-white/90 backdrop-blur-sm px-4 py-1.5 rounded-full shadow-sm border border-gray-200 text-xs font-mono text-gray-600 z-10 pointer-events-none tabular-nums">
