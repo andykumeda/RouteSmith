@@ -101,7 +101,7 @@ function App() {
     // Feature Collection for full save
     const fullGeoJson: GeoJSON.FeatureCollection = {
       type: 'FeatureCollection',
-      features: routeGeoJson ? [routeGeoJson] : []
+      features: routeGeoJson ? routeGeoJson.features : []
     };
 
     const { error, route } = await mockService.saveRoute(user.id, {

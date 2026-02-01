@@ -9,15 +9,21 @@ interface ElevationPoint {
 }
 
 export const exportToGpx = (
-    routeGeoJson: GeoJSON.Feature<GeoJSON.LineString> | null,
+    routeGeoJson: GeoJSON.FeatureCollection | GeoJSON.Feature<GeoJSON.LineString> | null,
     elevationProfile: ElevationPoint[],
     routeName: string = "Exported Route"
 ): string => {
-    if (!routeGeoJson || !routeGeoJson.geometry || !routeGeoJson.geometry.coordinates) {
+    if (!routeGeoJson) return '';
+
+    const lineFeature = routeGeoJson.type === 'FeatureCollection'
+        ? (routeGeoJson.features.find(f => f.geometry.type === 'LineString') as GeoJSON.Feature<GeoJSON.LineString>)
+        : (routeGeoJson as GeoJSON.Feature<GeoJSON.LineString>);
+
+    if (!lineFeature || !lineFeature.geometry || !lineFeature.geometry.coordinates) {
         return '';
     }
 
-    const coords = routeGeoJson.geometry.coordinates;
+    const coords = lineFeature.geometry.coordinates;
 
     // header
     let gpx = `<?xml version="1.0" encoding="UTF-8"?>

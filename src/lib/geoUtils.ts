@@ -12,38 +12,40 @@ export const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2
 };
 
 export const getCoordinateAtDistance = (
-    geojson: GeoJSON.Feature<GeoJSON.LineString> | null,
+    geojson: GeoJSON.FeatureCollection | GeoJSON.Feature<GeoJSON.LineString> | null,
     distMeters: number
 ): [number, number] | null => {
     if (!geojson) return null;
+    const lineFeature = geojson.type === 'FeatureCollection'
+        ? (geojson.features.find(f => f.geometry.type === 'LineString') as GeoJSON.Feature<GeoJSON.LineString>)
+        : (geojson as GeoJSON.Feature<GeoJSON.LineString>);
+
+    if (!lineFeature) return null;
     try {
-        // Turf uses km by default for along
         const distKm = distMeters / 1000;
-        const total = length(geojson, { units: 'kilometers' });
-
-        // Clamp
+        const total = length(lineFeature, { units: 'kilometers' });
         const target = Math.max(0, Math.min(distKm, total));
-
-        // console.log(`DEBUG: customAlong: ${target}km of ${total}km`);
-
-        const p = along(geojson, target, { units: 'kilometers' });
+        const p = along(lineFeature, target, { units: 'kilometers' });
         return p.geometry.coordinates as [number, number];
     } catch (e) {
-        console.error('DEBUG: geoUtils Error', e);
-        console.error('Error in getCoordinateAtDistance', e);
         return null;
     }
 };
 
 export const getDistanceAtCoordinate = (
-    geojson: GeoJSON.Feature<GeoJSON.LineString> | null,
+    geojson: GeoJSON.FeatureCollection | GeoJSON.Feature<GeoJSON.LineString> | null,
     lng: number,
     lat: number
 ): number | null => {
     if (!geojson) return null;
+    const lineFeature = geojson.type === 'FeatureCollection'
+        ? (geojson.features.find(f => f.geometry.type === 'LineString') as GeoJSON.Feature<GeoJSON.LineString>)
+        : (geojson as GeoJSON.Feature<GeoJSON.LineString>);
+
+    if (!lineFeature) return null;
     try {
         const p = point([lng, lat]);
-        const snapped = nearestPointOnLine(geojson, p, { units: 'kilometers' });
+        const snapped = nearestPointOnLine(lineFeature, p, { units: 'kilometers' });
 
         // snapped.properties.location is distance along line in km (if properly supported by the version, usually 'location' property)
         // types for turf nearestPointOnLine return NearestPointOnLine which extends Feature<Point, Properties>

@@ -25,7 +25,7 @@ interface ElevationPoint {
 interface RouteState {
     waypoints: Waypoint[];
     segments: Segment[];
-    routeGeoJson: GeoJSON.Feature<GeoJSON.LineString> | null;
+    routeGeoJson: GeoJSON.FeatureCollection | null;
     totalDistance: number;
     totalElevationGain: number;
     elevationProfile: ElevationPoint[];
@@ -163,13 +163,18 @@ export const useRouteStore = create<RouteState>((set, get) => ({
 
         const allCoordinates = newSegments.flatMap(seg => seg.geometry.coordinates);
 
-        const newRouteGeoJson: GeoJSON.Feature<GeoJSON.LineString> = {
-            type: 'Feature',
-            properties: {},
-            geometry: {
-                type: 'LineString',
-                coordinates: allCoordinates
-            }
+        const newRouteGeoJson: GeoJSON.FeatureCollection = {
+            type: 'FeatureCollection',
+            features: [
+                {
+                    type: 'Feature',
+                    properties: {},
+                    geometry: {
+                        type: 'LineString',
+                        coordinates: allCoordinates
+                    }
+                }
+            ]
         };
 
         const newTotalDistance = newSegments.reduce((acc, seg) => acc + seg.distance, 0);
@@ -237,16 +242,21 @@ export const useRouteStore = create<RouteState>((set, get) => ({
         const newSegments = segments.slice(0, -1);
         const allCoordinates = newSegments.flatMap(seg => seg.geometry.coordinates);
 
-        let newRouteGeoJson: GeoJSON.Feature<GeoJSON.LineString> | null = null;
+        let newRouteGeoJson: GeoJSON.FeatureCollection | null = null;
 
         if (allCoordinates.length > 0) {
             newRouteGeoJson = {
-                type: 'Feature',
-                properties: {},
-                geometry: {
-                    type: 'LineString',
-                    coordinates: allCoordinates
-                }
+                type: 'FeatureCollection',
+                features: [
+                    {
+                        type: 'Feature',
+                        properties: {},
+                        geometry: {
+                            type: 'LineString',
+                            coordinates: allCoordinates
+                        }
+                    }
+                ]
             };
         }
 
@@ -385,7 +395,10 @@ export const useRouteStore = create<RouteState>((set, get) => ({
         set({
             waypoints: [startWP, endWP],
             segments: [segment],
-            routeGeoJson: trackFeature,
+            routeGeoJson: {
+                type: 'FeatureCollection',
+                features: [trackFeature]
+            },
             totalDistance: dist,
             totalElevationGain: gain,
             elevationProfile: elevationProfile,

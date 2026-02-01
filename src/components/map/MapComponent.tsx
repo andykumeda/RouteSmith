@@ -195,22 +195,30 @@ const MapComponent = () => {
 
     // Update Route Layer & Handle Auto-Zoom
     useEffect(() => {
-        if (!map.current || !map.current.isStyleLoaded()) return;
+        if (!map.current) return;
 
-        const source = map.current.getSource('route') as mapboxgl.GeoJSONSource;
-        if (source && routeGeoJson) {
-            source.setData(routeGeoJson);
+        const updateData = () => {
+            const source = map.current?.getSource('route') as mapboxgl.GeoJSONSource;
+            if (source) {
+                source.setData(routeGeoJson || { type: 'FeatureCollection', features: [] });
 
-            if (useRouteStore.getState().shouldFitBounds) {
-                const bounds = new mapboxgl.LngLatBounds();
-                routeGeoJson.geometry.coordinates.forEach(coord => {
-                    bounds.extend([coord[0], coord[1]]);
-                });
-                map.current.fitBounds(bounds, { padding: 50 });
-                useRouteStore.getState().setShouldFitBounds(false);
+                if (routeGeoJson && useRouteStore.getState().shouldFitBounds) {
+                    const bounds = new mapboxgl.LngLatBounds();
+                    const coordinates = routeGeoJson.features.flatMap((f: any) => f.geometry.coordinates);
+
+                    if (coordinates && coordinates.length > 0) {
+                        coordinates.forEach((coord: any) => bounds.extend([coord[0], coord[1]]));
+                        map.current?.fitBounds(bounds, { padding: 50 });
+                        useRouteStore.getState().setShouldFitBounds(false);
+                    }
+                }
             }
-        } else if (source) {
-            source.setData({ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: [] } });
+        };
+
+        if (map.current.isStyleLoaded()) {
+            updateData();
+        } else {
+            map.current.once('style.load', updateData);
         }
     }, [routeGeoJson]);
 
