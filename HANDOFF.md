@@ -16,6 +16,7 @@ The application is in a highly functional state with core mapping, routing, and 
 - **Share URL**: Fixed route ID retrieval to ensure deep links point to the correct saved data.
 - **Closure Traps**: Resolved stale closures in map event listeners by using `useRouteStore.getState()`.
 - **Z-Index Fixes**: Ensured elevation profile interaction isn't blocked by map containers.
+- **Map Style Switcher**: Restored the missing UI and implemented a robust `style.load` listener to preserve routes and markers during style changes.
 
 ## 📋 Pending Tasks
 
