@@ -177,9 +177,6 @@ function App() {
                 <img src={user.avatar} alt="Avatar" className="w-8 h-8 rounded-full border border-gray-200" />
                 <div className="flex flex-col">
                   <span className="text-sm font-bold text-gray-800 leading-none">{user.username}</span>
-                  <span className="text-[10px] text-blue-600 font-semibold mt-0.5 flex items-center gap-1">
-                    <BookOpen size={10} /> My Routes
-                  </span>
                 </div>
               </div>
             ) : (
@@ -193,9 +190,18 @@ function App() {
 
             <div className="flex items-center gap-1">
               {user && (
-                <button onClick={logout} className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-full transition-colors" title="Log Out">
-                  <LogOut size={16} />
-                </button>
+                <>
+                  <button
+                    onClick={() => setDashboardOpen(true)}
+                    className="p-2 rounded-full hover:bg-blue-50 text-blue-600 transition-colors"
+                    title="My Saved Routes"
+                  >
+                    <BookOpen size={18} />
+                  </button>
+                  <button onClick={logout} className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-full transition-colors" title="Log Out">
+                    <LogOut size={16} />
+                  </button>
+                </>
               )}
               <button
                 onClick={() => setSettingsOpen(true)}
@@ -264,16 +270,6 @@ function App() {
 
           {/* Actions */}
           <div className="flex flex-col gap-3">
-            {/* My Routes (Moved Above) */}
-            {user && (
-              <button
-                onClick={() => setDashboardOpen(true)}
-                className="w-full py-2.5 px-4 bg-white text-gray-700 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors font-semibold shadow-sm flex items-center justify-center gap-2 mb-1"
-              >
-                <BookOpen size={18} className="text-blue-500" /> My Saved Routes
-              </button>
-            )}
-
             {/* Mode Toggle */}
             {isReadOnly ? (
               <button
