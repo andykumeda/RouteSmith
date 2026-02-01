@@ -1,73 +1,47 @@
-# React + TypeScript + Vite
+# Trail Nav Pro
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Trail Nav Pro is a premium web-based hiking and trail navigation platform. It allows users to plan routes with high-precision path snapping, visualize elevation profiles, and manage personal hiking data using a mock backend.
 
-Currently, two official plugins are available:
+## 🚀 Key Features
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+- **Interactive Map**: Built with Mapbox GL JS, supporting multiple layers (Streets, Satellite, Outdoors).
+- **Intelligent Routing**: Automatic path snapping using Mapbox Directions API.
+- **Elevation Profiles**: High-resolution elevation charts with synchronized hover tracking between the map and the chart.
+- **Unit Support**: Seamless switching between Metric (km/m) and Imperial (mi/ft) units.
+- **Mock Backend**: Full support for user accounts, route saving, and sharing via `localStorage`.
+- **GPX Support**: Import and export GPX files with elevation data.
 
-## React Compiler
+## 🛠 Tech Stack
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+- **Frontend**: React 19, Vite, TypeScript.
+- **Styling**: Tailwind CSS, Lucide React icons.
+- **Mapping**: Mapbox GL JS, Turf.js.
+- **Charts**: Recharts.
+- **State Management**: Zustand.
 
-## Expanding the ESLint configuration
+## 🏁 Getting Started
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+1.  **Clone the repository**.
+2.  **Install dependencies**:
+    ```bash
+    npm install
+    ```
+3.  **Environment Setup**: Create a `.env` file and add your Mapbox token:
+    ```
+    VITE_MAPBOX_TOKEN=your_token_here
+    ```
+4.  **Run Development Server**:
+    ```bash
+    npm run dev
+    ```
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+## 📂 Project Structure
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
+- `src/components`: UI components (map, sidebar, auth, etc.).
+- `src/store`: Zustand stores for routes, auth, and settings.
+- `src/lib`: Utility functions for geo-calculations and mock services.
+- `src/hooks`: Custom React hooks.
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
+## 🗺 Roadmap
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
-
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
+See [HANDOFF.md](HANDOFF.md) for current implementation status and pending tasks.
