@@ -185,10 +185,12 @@ export const useRouteStore = create<RouteState>((set, get) => ({
         let currentCumulativeDist = 0;
         const fullElevationProfile: ElevationPoint[] = [];
         let elevationGain = 0;
+        const GAIN_THRESHOLD = 2.0; // Ignore jitters less than 2m
 
         newSegments.forEach(seg => {
             if (seg.elevationProfile && seg.elevationProfile.length > 0) {
-                let previousElev = seg.elevationProfile[0].elevation;
+                // Tracking within the segment
+                let referenceElev = seg.elevationProfile[0].elevation;
 
                 seg.elevationProfile.forEach(point => {
                     // Add to profile
@@ -197,12 +199,14 @@ export const useRouteStore = create<RouteState>((set, get) => ({
                         elevation: point.elevation
                     });
 
-                    // Calculate gain
-                    const delta = point.elevation - previousElev;
-                    if (delta > 0) {
-                        elevationGain += delta;
+                    // Hysteresis Gain Calculation
+                    if (point.elevation > referenceElev + GAIN_THRESHOLD) {
+                        elevationGain += (point.elevation - referenceElev);
+                        referenceElev = point.elevation;
+                    } else if (point.elevation < referenceElev) {
+                        // Update reference downward to catch new climbs from a lower point
+                        referenceElev = point.elevation;
                     }
-                    previousElev = point.elevation;
                 });
             }
             currentCumulativeDist += seg.distance;
@@ -265,10 +269,11 @@ export const useRouteStore = create<RouteState>((set, get) => ({
         let currentCumulativeDist = 0;
         const fullElevationProfile: ElevationPoint[] = [];
         let elevationGain = 0;
+        const GAIN_THRESHOLD = 2.0;
 
         newSegments.forEach(seg => {
             if (seg.elevationProfile && seg.elevationProfile.length > 0) {
-                let previousElev = seg.elevationProfile[0].elevation;
+                let referenceElev = seg.elevationProfile[0].elevation;
 
                 seg.elevationProfile.forEach(point => {
                     fullElevationProfile.push({
@@ -276,9 +281,12 @@ export const useRouteStore = create<RouteState>((set, get) => ({
                         elevation: point.elevation
                     });
 
-                    const delta = point.elevation - previousElev;
-                    if (delta > 0) elevationGain += delta;
-                    previousElev = point.elevation;
+                    if (point.elevation > referenceElev + GAIN_THRESHOLD) {
+                        elevationGain += (point.elevation - referenceElev);
+                        referenceElev = point.elevation;
+                    } else if (point.elevation < referenceElev) {
+                        referenceElev = point.elevation;
+                    }
                 });
             }
             currentCumulativeDist += seg.distance;
@@ -352,8 +360,9 @@ export const useRouteStore = create<RouteState>((set, get) => ({
         // Calculate stats from the track
         let dist = 0;
         let gain = 0;
-        let prevEle = coords[0][2] || 0;
+        const GAIN_THRESHOLD = 2.0;
         const elevationProfile: ElevationPoint[] = [];
+        let referenceElev = coords[0][2] || 0;
 
         for (let i = 0; i < coords.length; i++) {
             const curr = coords[i];
@@ -365,13 +374,14 @@ export const useRouteStore = create<RouteState>((set, get) => ({
             }
 
             // Elevation
-            const ele = curr[2] || 0; // GeoJSON from GPX usually puts elevation in 3rd coord
-            if (ele) {
+            const ele = curr[2] || 0;
+            if (ele !== undefined) {
                 elevationProfile.push({ distance: dist, elevation: ele });
-                if (i > 0) {
-                    const delta = ele - prevEle;
-                    if (delta > 0) gain += delta;
-                    prevEle = ele;
+                if (ele > referenceElev + GAIN_THRESHOLD) {
+                    gain += (ele - referenceElev);
+                    referenceElev = ele;
+                } else if (ele < referenceElev) {
+                    referenceElev = ele;
                 }
             }
         }
