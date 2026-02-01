@@ -11,6 +11,8 @@ export interface Waypoint {
     elevation?: number;
     type: 'start' | 'end' | 'route' | 'poi'; // Visual type
     poiType?: POIType;
+    comment?: string;
+    date?: string;
 }
 
 interface Segment {
@@ -44,6 +46,7 @@ interface RouteState {
 
     addWaypoint: (lng: number, lat: number) => Promise<void>;
     addPOI: (lng: number, lat: number, type: POIType) => void;
+    updateWaypoint: (id: string, updates: Partial<Waypoint>) => Promise<void>;
     removeWaypoint: (id: string) => void;
     undoLastWaypoint: () => void;
     clearRoute: () => void;
@@ -79,7 +82,7 @@ export const useRouteStore = create<RouteState>((set, get) => ({
     setRouteId: (id) => set({ routeId: id }),
     setHoveredDistance: (dist) => set({ hoveredDistance: dist }),
 
-    addWaypoint: async (lng, lat) => {
+    addWaypoint: async (lng: number, lat: number) => {
         const { waypoints, segments, routeName, isReadOnly, isManualMode } = get();
 
         if (isReadOnly) return;
@@ -228,7 +231,7 @@ export const useRouteStore = create<RouteState>((set, get) => ({
         });
     },
 
-    addPOI: (lng, lat, type) => {
+    addPOI: (lng: number, lat: number, type: POIType) => {
         const { waypoints, isReadOnly } = get();
         if (isReadOnly) return;
 
@@ -241,6 +244,146 @@ export const useRouteStore = create<RouteState>((set, get) => ({
         };
 
         set({ waypoints: [...waypoints, newPOI] });
+    },
+
+    updateWaypoint: async (id, updates) => {
+        const { waypoints, isReadOnly, isManualMode } = get();
+        if (isReadOnly) return;
+
+        const wpIndex = waypoints.findIndex(w => w.id === id);
+        if (wpIndex === -1) return;
+
+        const oldWP = waypoints[wpIndex];
+        const newWaypoints = [...waypoints];
+        newWaypoints[wpIndex] = { ...oldWP, ...updates };
+
+        // If it's just metadata (comment, date, type), simple update
+        const posChanged = updates.lng !== undefined || updates.lat !== undefined;
+        const isRoutePoint = oldWP.type === 'start' || oldWP.type === 'end' || oldWP.type === 'route';
+
+        if (!posChanged || !isRoutePoint) {
+            set({ waypoints: newWaypoints });
+            return;
+        }
+
+        // Deep Update: Position of a route point changed. Need to rebuild segments.
+        set({ isFetching: true, waypoints: newWaypoints });
+
+        // For simplicity and to avoid complex logic, we'll rebuild all segments 
+        // that are adjacent to the moved point. 
+        // Actually, the current addWaypoint logic is quite cumulative. 
+        // To be robust, let's implement a full rebuild helper later, 
+        // but for now let's just update the neighbors.
+
+        // RE-CALCULATION LOGIC (Unified for add/update)
+        // [This will be further refactored if needed, but for now we'll do it surgical]
+
+        const routingWaypoints = newWaypoints.filter(w => w.type !== 'poi');
+        const routeIdx = routingWaypoints.findIndex(w => w.id === id);
+
+        const newSegments = [...get().segments];
+
+        const updateSegmentBetween = async (idxA: number, idxB: number) => {
+            const wpA = routingWaypoints[idxA];
+            const wpB = routingWaypoints[idxB];
+
+            let directionData = null;
+            if (!isManualMode) {
+                directionData = await getDirections(
+                    [wpA.lng, wpA.lat],
+                    [wpB.lng, wpB.lat],
+                    'walking'
+                );
+            }
+
+            let seg: Segment;
+            if (directionData) {
+                seg = {
+                    id: crypto.randomUUID(),
+                    geometry: directionData.geometry,
+                    distance: directionData.distance,
+                };
+            } else {
+                seg = {
+                    id: crypto.randomUUID(),
+                    geometry: {
+                        type: 'LineString',
+                        coordinates: [[wpA.lng, wpA.lat], [wpB.lng, wpB.lat]]
+                    },
+                    distance: calculateDistance(wpA.lat, wpA.lng, wpB.lat, wpB.lng)
+                };
+            }
+
+            const elevations = await getElevationData(seg.geometry.coordinates);
+            if (elevations.length > 0) {
+                const profile: ElevationPoint[] = elevations.map((e, i) => ({
+                    distance: (i / (elevations.length - 1 || 1)) * seg.distance,
+                    elevation: e
+                }));
+                seg.elevationProfile = profile;
+            }
+            return seg;
+        };
+
+        // If routeIdx > 0, update segment to previous
+        if (routeIdx > 0) {
+            newSegments[routeIdx - 1] = await updateSegmentBetween(routeIdx - 1, routeIdx);
+        }
+        // If routeIdx < routingWaypoints.length - 1, update segment to next
+        if (routeIdx < routingWaypoints.length - 1) {
+            newSegments[routeIdx] = await updateSegmentBetween(routeIdx, routeIdx + 1);
+        }
+
+        // Re-assemble full route from segments
+        const allCoordinates = newSegments.flatMap(seg => seg.geometry.coordinates);
+        const newRouteGeoJson: GeoJSON.FeatureCollection = {
+            type: 'FeatureCollection',
+            features: [{
+                type: 'Feature',
+                properties: {},
+                geometry: { type: 'LineString', coordinates: allCoordinates }
+            }]
+        };
+
+        const newTotalDistance = newSegments.reduce((acc, seg) => acc + seg.distance, 0);
+        let currentCumulativeDist = 0;
+        const fullElevationProfile: ElevationPoint[] = [];
+        let elevationGain = 0;
+        const GAIN_THRESHOLD = 2.0;
+        let minElev = Infinity;
+        let maxElev = -Infinity;
+
+        newSegments.forEach(seg => {
+            if (seg.elevationProfile) {
+                let referenceElev = seg.elevationProfile[0].elevation;
+                seg.elevationProfile.forEach(point => {
+                    fullElevationProfile.push({
+                        distance: currentCumulativeDist + point.distance,
+                        elevation: point.elevation
+                    });
+                    if (point.elevation < minElev) minElev = point.elevation;
+                    if (point.elevation > maxElev) maxElev = point.elevation;
+                    if (point.elevation > referenceElev + GAIN_THRESHOLD) {
+                        elevationGain += (point.elevation - referenceElev);
+                        referenceElev = point.elevation;
+                    } else if (point.elevation < referenceElev) {
+                        referenceElev = point.elevation;
+                    }
+                });
+            }
+            currentCumulativeDist += seg.distance;
+        });
+
+        set({
+            segments: newSegments,
+            routeGeoJson: newRouteGeoJson,
+            totalDistance: newTotalDistance,
+            elevationProfile: fullElevationProfile,
+            totalElevationGain: elevationGain,
+            minElevation: minElev === Infinity ? null : minElev,
+            maxElevation: maxElev === -Infinity ? null : maxElev,
+            isFetching: false
+        });
     },
 
     undoLastWaypoint: () => {

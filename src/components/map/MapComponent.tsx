@@ -20,7 +20,7 @@ const STYLE_URLS: Record<MapStyle, string> = {
 const MapComponent = () => {
     const mapContainer = useRef<HTMLDivElement>(null);
     const map = useRef<mapboxgl.Map | null>(null);
-    const { waypoints, addWaypoint, addPOI, routeGeoJson, hoveredDistance, setHoveredDistance, isReadOnly } = useRouteStore();
+    const { waypoints, addWaypoint, addPOI, updateWaypoint, routeGeoJson, hoveredDistance, setHoveredDistance, isReadOnly } = useRouteStore();
 
     const [selectedPOIType, setSelectedPOIType] = useState<POIType | null>(null);
     const selectedPOITypeRef = useRef(selectedPOIType);
@@ -284,16 +284,57 @@ const MapComponent = () => {
                 if (iconMarkup) container.innerHTML = iconMarkup;
                 else container.appendChild(el);
 
-                const marker = new mapboxgl.Marker(container)
+                const marker = new mapboxgl.Marker({
+                    element: container,
+                    draggable: !isReadOnly
+                })
                     .setLngLat([wp.lng, wp.lat])
                     .addTo(map.current!);
+
+                // Handle Dragging
+                marker.on('dragend', () => {
+                    const lngLat = marker.getLngLat();
+                    updateWaypoint(wp.id, { lng: lngLat.lng, lat: lngLat.lat });
+                });
+
+                // Handle Popup (Comments & Dates)
+                const popupNode = document.createElement('div');
+                popupNode.className = 'p-3 min-w-[200px] flex flex-col gap-2 font-sans';
+
+                const title = wp.type === 'poi' ? ((wp.poiType || 'POI').charAt(0).toUpperCase() + (wp.poiType || 'POI').slice(1)) : 'Waypoint';
+                popupNode.innerHTML = `
+                    <div class="text-sm font-bold text-gray-800 border-b border-gray-100 pb-1.5 mb-1">${title}</div>
+                    <textarea class="w-full text-xs p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none min-h-[60px]" placeholder="Add a comment...">${wp.comment || ''}</textarea>
+                    <div class="flex flex-col gap-1">
+                        <label class="text-[10px] uppercase font-bold text-gray-400">Date</label>
+                        <input type="date" class="w-full text-xs p-1.5 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500" value="${wp.date || ''}" />
+                    </div>
+                `;
+
+                const textarea = popupNode.querySelector('textarea')!;
+                const dateInput = popupNode.querySelector('input')!;
+
+                const updateMetadata = () => {
+                    updateWaypoint(wp.id, {
+                        comment: textarea.value,
+                        date: dateInput.value
+                    });
+                };
+
+                textarea.addEventListener('change', updateMetadata);
+                dateInput.addEventListener('change', updateMetadata);
+
+                const popup = new mapboxgl.Popup({ offset: 15, closeButton: false })
+                    .setDOMContent(popupNode);
+
+                marker.setPopup(popup);
 
                 markersRef.current[wp.id] = marker;
             } else {
                 markersRef.current[wp.id].setLngLat([wp.lng, wp.lat]);
             }
         });
-    }, [waypoints]);
+    }, [waypoints, isReadOnly]);
 
     return (
         <div className="relative w-full h-full">
