@@ -95,26 +95,28 @@ export const useRouteStore = create<RouteState>((set, get) => ({
             });
         }
 
+        const routingWaypoints = waypoints.filter(w => w.type !== 'poi');
+
         const newWaypoint: Waypoint = {
             id: crypto.randomUUID(),
             lng,
             lat,
-            type: waypoints.length === 0 ? 'start' : 'end'
+            type: routingWaypoints.length === 0 ? 'start' : 'end'
         };
 
-        if (waypoints.length === 0) {
-            set({ waypoints: [newWaypoint] });
+        if (routingWaypoints.length === 0) {
+            set({ waypoints: [...waypoints, newWaypoint] });
             return;
         }
 
         set({ isFetching: true });
 
-        const lastWaypoint = waypoints[waypoints.length - 1];
+        const lastRoutingWaypoint = routingWaypoints[routingWaypoints.length - 1];
         let directionData = null;
 
         if (!isManualMode) {
             directionData = await getDirections(
-                [lastWaypoint.lng, lastWaypoint.lat],
+                [lastRoutingWaypoint.lng, lastRoutingWaypoint.lat],
                 [lng, lat],
                 'walking'
             );
@@ -134,11 +136,11 @@ export const useRouteStore = create<RouteState>((set, get) => ({
                 geometry: {
                     type: 'LineString',
                     coordinates: [
-                        [lastWaypoint.lng, lastWaypoint.lat],
+                        [lastRoutingWaypoint.lng, lastRoutingWaypoint.lat],
                         [lng, lat]
                     ]
                 },
-                distance: calculateDistance(lastWaypoint.lat, lastWaypoint.lng, lat, lng)
+                distance: calculateDistance(lastRoutingWaypoint.lat, lastRoutingWaypoint.lng, lat, lng)
             };
         }
 
@@ -160,13 +162,15 @@ export const useRouteStore = create<RouteState>((set, get) => ({
 
         const newSegments = [...segments, newSegment];
 
-        const updatedWaypoints = waypoints.map((wp, i) =>
-            (i === waypoints.length - 1 && wp.type === 'end')
-                ? { ...wp, type: 'route' as const }
-                : wp
-        );
+        // Ensure the previous 'end' point becomes a 'route' point
+        const newWaypoints = waypoints.map(wp => {
+            if (wp.id === lastRoutingWaypoint.id && wp.type === 'end') {
+                return { ...wp, type: 'route' as const };
+            }
+            return wp;
+        });
 
-        const newWaypoints = [...updatedWaypoints, newWaypoint];
+        newWaypoints.push(newWaypoint);
 
         const allCoordinates = newSegments.flatMap(seg => seg.geometry.coordinates);
 
@@ -477,10 +481,22 @@ export const useRouteStore = create<RouteState>((set, get) => ({
     },
 
     removeWaypoint: (id) => {
-        if (get().isReadOnly) return;
-        set((state) => {
-            const newWaypoints = state.waypoints.filter((wp) => wp.id !== id);
-            return {
+        const { waypoints, isReadOnly } = get();
+        if (isReadOnly) return;
+
+        const wpToRemove = waypoints.find(w => w.id === id);
+        if (!wpToRemove) return;
+
+        const isPOI = wpToRemove.type === 'poi';
+        const newWaypoints = waypoints.filter((wp) => wp.id !== id);
+
+        if (isPOI) {
+            // Just remove the POI, keep route intact
+            set({ waypoints: newWaypoints });
+        } else {
+            // If a routing point is removed, for now we clear or we'd need to rebuild all segments.
+            // Since deleting a point in the middle of a trail is complex, we clear for now (legacy behavior).
+            set({
                 waypoints: newWaypoints,
                 segments: [],
                 routeGeoJson: null,
@@ -489,8 +505,8 @@ export const useRouteStore = create<RouteState>((set, get) => ({
                 elevationProfile: [],
                 minElevation: null,
                 maxElevation: null
-            };
-        });
+            });
+        }
     },
 
     clearRoute: () => set({

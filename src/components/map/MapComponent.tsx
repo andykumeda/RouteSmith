@@ -5,7 +5,7 @@ import { useRouteStore } from '../../store/useRouteStore';
 import { getCoordinateAtDistance, getDistanceAtCoordinate } from '../../lib/geoUtils';
 import MapStyleSwitcher from './MapStyleSwitcher';
 import type { MapStyle } from './MapStyleSwitcher';
-import { Play, Square, Droplets, TriangleAlert, CircleSlash, Camera, X } from 'lucide-react';
+import { Play, Square, Droplets, TriangleAlert, CircleSlash, Camera, X, Trash2 } from 'lucide-react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import type { POIType } from '../../store/useRouteStore';
 
@@ -20,11 +20,16 @@ const STYLE_URLS: Record<MapStyle, string> = {
 const MapComponent = () => {
     const mapContainer = useRef<HTMLDivElement>(null);
     const map = useRef<mapboxgl.Map | null>(null);
-    const { waypoints, addWaypoint, addPOI, updateWaypoint, routeGeoJson, hoveredDistance, setHoveredDistance, isReadOnly } = useRouteStore();
+    const { waypoints, addWaypoint, addPOI, updateWaypoint, removeWaypoint, routeGeoJson, hoveredDistance, setHoveredDistance, isReadOnly } = useRouteStore();
 
     const [selectedPOIType, setSelectedPOIType] = useState<POIType | null>(null);
+    const [isDeleteMode, setIsDeleteMode] = useState(false);
+
     const selectedPOITypeRef = useRef(selectedPOIType);
     useEffect(() => { selectedPOITypeRef.current = selectedPOIType; }, [selectedPOIType]);
+
+    const isDeleteModeRef = useRef(isDeleteMode);
+    useEffect(() => { isDeleteModeRef.current = isDeleteMode; }, [isDeleteMode]);
 
     const [viewState, setViewState] = useState({
         zoom: 10,
@@ -306,7 +311,12 @@ const MapComponent = () => {
 
                 const title = wp.type === 'poi' ? ((wp.poiType || 'POI').charAt(0).toUpperCase() + (wp.poiType || 'POI').slice(1)) : 'Waypoint';
                 popupNode.innerHTML = `
-                    <div class="text-sm font-bold text-gray-800 border-b border-gray-100 pb-1.5 mb-1">${title}</div>
+                    <div class="flex items-center justify-between border-b border-gray-100 pb-1.5 mb-1">
+                        <div class="text-sm font-bold text-gray-800">${title}</div>
+                        <button class="delete-wp-btn p-1 text-gray-400 hover:text-red-500 transition-colors" title="Delete Point">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path></svg>
+                        </button>
+                    </div>
                     <textarea class="w-full text-xs p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none min-h-[60px]" placeholder="Add a comment...">${wp.comment || ''}</textarea>
                     <div class="flex flex-col gap-1">
                         <label class="text-[10px] uppercase font-bold text-gray-400">Date</label>
@@ -316,6 +326,7 @@ const MapComponent = () => {
 
                 const textarea = popupNode.querySelector('textarea')!;
                 const dateInput = popupNode.querySelector('input')!;
+                const deleteBtn = popupNode.querySelector('.delete-wp-btn')!;
 
                 const updateMetadata = () => {
                     updateWaypoint(wp.id, {
@@ -326,11 +337,23 @@ const MapComponent = () => {
 
                 textarea.addEventListener('change', updateMetadata);
                 dateInput.addEventListener('change', updateMetadata);
+                deleteBtn.addEventListener('click', () => {
+                    removeWaypoint(wp.id);
+                });
 
                 const popup = new mapboxgl.Popup({ offset: 15, closeButton: false })
                     .setDOMContent(popupNode);
 
                 marker.setPopup(popup);
+
+                // Override and handle tool-based deletion
+                container.addEventListener('click', (e) => {
+                    if (isDeleteModeRef.current) {
+                        e.stopPropagation();
+                        removeWaypoint(wp.id);
+                        return;
+                    }
+                });
 
                 markersRef.current[wp.id] = marker;
             } else {
@@ -343,12 +366,12 @@ const MapComponent = () => {
         <div className="relative w-full h-full">
             <div
                 ref={mapContainer}
-                className={`w-full h-full ${(!isReadOnly && !isDragging) ? (selectedPOIType ? '[&_.mapboxgl-canvas]:!cursor-copy' : '[&_.mapboxgl-canvas]:!cursor-crosshair') : ''}`}
+                className={`w-full h-full ${(!isReadOnly && !isDragging) ? (isDeleteMode ? '[&_.mapboxgl-canvas]:!cursor-not-allowed' : selectedPOIType ? '[&_.mapboxgl-canvas]:!cursor-copy' : '[&_.mapboxgl-canvas]:!cursor-crosshair') : ''}`}
             />
 
             <MapStyleSwitcher currentStyle={mapStyle} onStyleChange={setMapStyle} />
 
-            {/* POI Toolbar */}
+            {/* POI & Deletion Toolbar */}
             {!isReadOnly && (
                 <div className="absolute bottom-10 left-4 z-10 flex flex-col gap-2 p-1.5 bg-white/90 backdrop-blur-sm rounded-xl shadow-lg border border-gray-200">
                     {[
@@ -359,18 +382,38 @@ const MapComponent = () => {
                     ].map((poi) => (
                         <button
                             key={poi.type}
-                            onClick={() => setSelectedPOIType(selectedPOIType === poi.type ? null : poi.type)}
+                            onClick={() => {
+                                setIsDeleteMode(false);
+                                setSelectedPOIType(selectedPOIType === poi.type ? null : poi.type);
+                            }}
                             className={`p-2.5 rounded-lg transition-all flex items-center justify-center hover:scale-110 ${selectedPOIType === poi.type ? 'bg-gray-100 ring-2 ring-blue-400' : 'hover:bg-gray-50'}`}
                             title={poi.label}
                         >
                             <span className={poi.color}>{poi.icon}</span>
                         </button>
                     ))}
-                    {selectedPOIType && (
+
+                    <div className="h-px bg-gray-100 mx-1" />
+
+                    <button
+                        onClick={() => {
+                            setSelectedPOIType(null);
+                            setIsDeleteMode(!isDeleteMode);
+                        }}
+                        className={`p-2.5 rounded-lg transition-all flex items-center justify-center hover:scale-110 ${isDeleteMode ? 'bg-red-50 ring-2 ring-red-400 text-red-600' : 'text-gray-400 hover:bg-gray-50'}`}
+                        title="Delete Tool"
+                    >
+                        <Trash2 size={18} />
+                    </button>
+
+                    {(selectedPOIType || isDeleteMode) && (
                         <button
-                            onClick={() => setSelectedPOIType(null)}
+                            onClick={() => {
+                                setSelectedPOIType(null);
+                                setIsDeleteMode(false);
+                            }}
                             className="p-1 mt-1 text-gray-400 hover:text-gray-600 self-center"
-                            title="Cancel POI"
+                            title="Cancel Tool"
                         >
                             <X size={14} />
                         </button>
