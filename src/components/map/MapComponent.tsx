@@ -305,11 +305,13 @@ const MapComponent = () => {
                     updateWaypoint(wp.id, { lng: lngLat.lng, lat: lngLat.lat });
                 });
 
-                // Handle Popup (Comments & Dates)
+                // Handle Popup (Comments, Dates, Photos)
                 const popupNode = document.createElement('div');
-                popupNode.className = 'p-3 min-w-[200px] flex flex-col gap-2 font-sans';
+                popupNode.className = 'p-3 min-w-[220px] max-w-[280px] flex flex-col gap-2 font-sans';
 
+                const isCamera = wp.type === 'poi' && wp.poiType === 'camera';
                 const title = wp.type === 'poi' ? ((wp.poiType || 'POI').charAt(0).toUpperCase() + (wp.poiType || 'POI').slice(1)) : 'Waypoint';
+
                 popupNode.innerHTML = `
                     <div class="flex items-center justify-between border-b border-gray-100 pb-1.5 mb-1">
                         <div class="text-sm font-bold text-gray-800">${title}</div>
@@ -317,29 +319,83 @@ const MapComponent = () => {
                             <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path></svg>
                         </button>
                     </div>
-                    <textarea class="w-full text-xs p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none min-h-[60px]" placeholder="Add a comment...">${wp.comment || ''}</textarea>
-                    <div class="flex flex-col gap-1">
-                        <label class="text-[10px] uppercase font-bold text-gray-400">Date</label>
-                        <input type="date" class="w-full text-xs p-1.5 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500" value="${wp.date || ''}" />
-                    </div>
                 `;
 
-                const textarea = popupNode.querySelector('textarea')!;
-                const dateInput = popupNode.querySelector('input')!;
+                if (isCamera) {
+                    const photoHtml = `
+                        <div class="flex flex-col gap-2">
+                            <div class="photo-preview-container w-full aspect-video bg-gray-50 rounded-lg border-2 border-dashed border-gray-200 flex items-center justify-center overflow-hidden cursor-pointer group hover:border-blue-400 transition-colors">
+                                ${wp.imageUrl ? `<img src="${wp.imageUrl}" class="w-full h-full object-cover" />` : `
+                                    <div class="flex flex-col items-center text-gray-400 group-hover:text-blue-500">
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"></path><circle cx="12" cy="13" r="3"></circle></svg>
+                                        <span class="text-[10px] font-medium mt-1">Upload Photo</span>
+                                    </div>
+                                `}
+                            </div>
+                            <input type="file" class="photo-input hidden" accept="image/*" />
+                            <input type="text" class="caption-input w-full text-xs p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none" placeholder="Enter caption..." value="${wp.caption || ''}" />
+                        </div>
+                    `;
+                    popupNode.insertAdjacentHTML('beforeend', photoHtml);
+                } else {
+                    const standardHtml = `
+                        <textarea class="w-full text-xs p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none min-h-[60px]" placeholder="Add a comment...">${wp.comment || ''}</textarea>
+                        <div class="flex flex-col gap-1">
+                            <label class="text-[10px] uppercase font-bold text-gray-400">Date</label>
+                            <input type="date" class="w-full text-xs p-1.5 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500" value="${wp.date || ''}" />
+                        </div>
+                    `;
+                    popupNode.insertAdjacentHTML('beforeend', standardHtml);
+                }
+
                 const deleteBtn = popupNode.querySelector('.delete-wp-btn')!;
-
-                const updateMetadata = () => {
-                    updateWaypoint(wp.id, {
-                        comment: textarea.value,
-                        date: dateInput.value
-                    });
-                };
-
-                textarea.addEventListener('change', updateMetadata);
-                dateInput.addEventListener('change', updateMetadata);
-                deleteBtn.addEventListener('click', () => {
+                deleteBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
                     removeWaypoint(wp.id);
                 });
+
+                if (isCamera) {
+                    const preview = popupNode.querySelector('.photo-preview-container')!;
+                    const input = popupNode.querySelector('.photo-input') as HTMLInputElement;
+                    const captionInput = popupNode.querySelector('.caption-input') as HTMLInputElement;
+
+                    preview.addEventListener('click', () => input.click());
+
+                    input.addEventListener('change', async (e) => {
+                        const file = (e.target as HTMLInputElement).files?.[0];
+                        if (file) {
+                            const reader = new FileReader();
+                            reader.onload = (ev) => {
+                                const base64 = ev.target?.result as string;
+                                updateWaypoint(wp.id, { imageUrl: base64 });
+                                const img = preview.querySelector('img');
+                                if (img) {
+                                    img.src = base64;
+                                } else {
+                                    preview.innerHTML = `<img src="${base64}" class="w-full h-full object-cover" />`;
+                                }
+                            };
+                            reader.readAsDataURL(file);
+                        }
+                    });
+
+                    captionInput.addEventListener('change', () => {
+                        updateWaypoint(wp.id, { caption: captionInput.value });
+                    });
+                } else {
+                    const textarea = popupNode.querySelector('textarea')!;
+                    const dateInput = popupNode.querySelector('input')!;
+
+                    const updateMetadata = () => {
+                        updateWaypoint(wp.id, {
+                            comment: textarea.value,
+                            date: dateInput.value
+                        });
+                    };
+
+                    textarea.addEventListener('change', updateMetadata);
+                    dateInput.addEventListener('change', updateMetadata);
+                }
 
                 const popup = new mapboxgl.Popup({ offset: 15, closeButton: false })
                     .setDOMContent(popupNode);
@@ -351,7 +407,6 @@ const MapComponent = () => {
                     if (isDeleteModeRef.current) {
                         e.stopPropagation();
                         removeWaypoint(wp.id);
-                        return;
                     }
                 });
 
