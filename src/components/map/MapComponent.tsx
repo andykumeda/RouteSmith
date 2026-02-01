@@ -1,10 +1,18 @@
-import { useRef, useEffect, useState } from 'react';
+import { useRef, useEffect, useState, useCallback } from 'react';
 import mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import { useRouteStore } from '../../store/useRouteStore';
 import { getCoordinateAtDistance, getDistanceAtCoordinate } from '../../lib/geoUtils';
+import MapStyleSwitcher from './MapStyleSwitcher';
+import type { MapStyle } from './MapStyleSwitcher';
 
 mapboxgl.accessToken = import.meta.env.VITE_MAPBOX_TOKEN;
+
+const STYLE_URLS: Record<MapStyle, string> = {
+    outdoors: 'mapbox://styles/mapbox/outdoors-v12',
+    streets: 'mapbox://styles/mapbox/streets-v12',
+    satellite: 'mapbox://styles/mapbox/satellite-v9'
+};
 
 const MapComponent = () => {
     const mapContainer = useRef<HTMLDivElement>(null);
@@ -17,8 +25,76 @@ const MapComponent = () => {
         lng: -122.4194
     });
 
+    const [mapStyle, setMapStyle] = useState<MapStyle>('outdoors');
+
     // Track dragging to toggle cursor
     const [isDragging, setIsDragging] = useState(false);
+
+    // Reusable function to setup sources and layers
+    // Called on initial load AND every time the style changes
+    const setupMapLayers = useCallback(() => {
+        if (!map.current) return;
+
+        // Sources
+        if (!map.current.getSource('route')) {
+            map.current.addSource('route', {
+                type: 'geojson',
+                data: routeGeoJson || { type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: [] } }
+            });
+        }
+
+        if (!map.current.getSource('hover-marker')) {
+            map.current.addSource('hover-marker', {
+                type: 'geojson',
+                data: { type: 'FeatureCollection', features: [] }
+            });
+        }
+
+        // Layers
+        if (!map.current.getLayer('route-line')) {
+            map.current.addLayer({
+                id: 'route-line',
+                type: 'line',
+                source: 'route',
+                layout: {
+                    'line-join': 'round',
+                    'line-cap': 'round'
+                },
+                paint: {
+                    'line-color': '#2563eb', // blue-600
+                    'line-width': 4,
+                    'line-opacity': 0.8
+                }
+            });
+        }
+
+        if (!map.current.getLayer('route-hit-area')) {
+            map.current.addLayer({
+                id: 'route-hit-area',
+                type: 'line',
+                source: 'route',
+                layout: { 'line-join': 'round', 'line-cap': 'round' },
+                paint: {
+                    'line-color': 'transparent',
+                    'line-width': 20
+                }
+            });
+        }
+
+        if (!map.current.getLayer('hover-marker-point')) {
+            map.current.addLayer({
+                id: 'hover-marker-point',
+                type: 'circle',
+                source: 'hover-marker',
+                paint: {
+                    'circle-radius': 6,
+                    'circle-color': '#fff',
+                    'circle-stroke-width': 2,
+                    'circle-stroke-color': '#2563eb'
+                }
+            });
+        }
+    }, [routeGeoJson]);
 
     // Initialize Map
     useEffect(() => {
@@ -26,7 +102,7 @@ const MapComponent = () => {
 
         map.current = new mapboxgl.Map({
             container: mapContainer.current!,
-            style: 'mapbox://styles/mapbox/outdoors-v12',
+            style: STYLE_URLS[mapStyle],
             center: [0, 20], // Default: Globe view
             zoom: 2,
         });
@@ -54,65 +130,16 @@ const MapComponent = () => {
         map.current.on('dragstart', () => setIsDragging(true));
         map.current.on('dragend', () => setIsDragging(false));
 
+        // Important: Use style.load event to ensure layers are added whenever style changes
+        map.current.on('style.load', () => {
+            setupMapLayers();
+        });
+
         map.current.on('load', () => {
             // Delay just slightly to ensure everything is ready
             setTimeout(() => {
                 geolocate.trigger();
             }, 1000);
-
-            // Sources
-            map.current?.addSource('route', {
-                type: 'geojson',
-                data: { type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: [] } }
-            });
-
-            // Hover Marker Source
-            map.current?.addSource('hover-marker', {
-                type: 'geojson',
-                data: { type: 'FeatureCollection', features: [] }
-            });
-
-            // Layers
-            map.current?.addLayer({
-                id: 'route-line',
-                type: 'line',
-                source: 'route',
-                layout: {
-                    'line-join': 'round',
-                    'line-cap': 'round'
-                },
-                paint: {
-                    'line-color': '#2563eb', // blue-600
-                    'line-width': 4,
-                    'line-opacity': 0.8
-                }
-            });
-
-            // Hit Area Layer (invisible, thicker for easier hovering)
-            map.current?.addLayer({
-                id: 'route-hit-area',
-                type: 'line',
-                source: 'route',
-                layout: { 'line-join': 'round', 'line-cap': 'round' },
-                paint: {
-                    'line-color': 'transparent',
-                    'line-width': 20
-                }
-            });
-
-            // Hover Marker Layer
-            map.current?.addLayer({
-                id: 'hover-marker-point',
-                type: 'circle',
-                source: 'hover-marker',
-                paint: {
-                    'circle-radius': 6,
-                    'circle-color': '#fff',
-                    'circle-stroke-width': 2,
-                    'circle-stroke-color': '#2563eb'
-                }
-            });
-
 
             // Add Click Handler
             map.current?.on('click', (e) => {
@@ -155,6 +182,12 @@ const MapComponent = () => {
 
     }, []);
 
+    // Handle Style Change
+    useEffect(() => {
+        if (!map.current) return;
+        map.current.setStyle(STYLE_URLS[mapStyle]);
+    }, [mapStyle]);
+
     // Update Route Layer & Handle Auto-Zoom
     useEffect(() => {
         if (!map.current || !map.current.isStyleLoaded()) return;
@@ -180,15 +213,9 @@ const MapComponent = () => {
     useEffect(() => {
         // console.log('DEBUG: Map Effect Triggered. Dist:', hoveredDistance);
 
-        if (!map.current) {
+        if (!map.current || !map.current.isStyleLoaded()) {
             // console.warn('DEBUG: Map ref is null');
             return;
-        }
-
-        if (!map.current.isStyleLoaded()) {
-            // console.warn('DEBUG: Map style NOT loaded');
-            // Attempt to continue anyway if source exists, but usually unsafe.
-            // But let's log it.
         }
 
         const source = map.current.getSource('hover-marker') as mapboxgl.GeoJSONSource;
@@ -286,6 +313,9 @@ const MapComponent = () => {
                 ref={mapContainer}
                 className={`w-full h-full ${(!isReadOnly && !isDragging) ? '[&_.mapboxgl-canvas]:!cursor-crosshair' : ''}`}
             />
+
+            <MapStyleSwitcher currentStyle={mapStyle} onStyleChange={setMapStyle} />
+
             {/* Info Overlay */}
             <div className="absolute top-4 left-1/2 transform -translate-x-1/2 bg-white/90 backdrop-blur-sm px-4 py-1.5 rounded-full shadow-sm border border-gray-200 text-xs font-mono text-gray-600 z-10 pointer-events-none tabular-nums">
                 Zoom: {viewState.zoom.toFixed(2)} | {viewState.lat.toFixed(4)}, {viewState.lng.toFixed(4)}
