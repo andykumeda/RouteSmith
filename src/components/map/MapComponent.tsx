@@ -1,4 +1,4 @@
-import { useRef, useEffect, useState, useCallback } from 'react';
+import { useRef, useEffect, useState } from 'react';
 import mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import { useRouteStore } from '../../store/useRouteStore';
@@ -32,74 +32,116 @@ const MapComponent = () => {
     // Track dragging to toggle cursor
     const [isDragging, setIsDragging] = useState(false);
 
-    // Track state in refs for listeners to avoid closures
-    const routeGeoJsonRef = useRef(routeGeoJson);
-    useEffect(() => { routeGeoJsonRef.current = routeGeoJson; }, [routeGeoJson]);
-
-    // Reusable function to setup sources and layers
-    const setupMapLayers = useCallback(() => {
+    // Unified Map Sync Effect
+    useEffect(() => {
         if (!map.current) return;
 
-        // Sources
-        if (!map.current.getSource('route')) {
-            map.current.addSource('route', {
-                type: 'geojson',
-                data: routeGeoJsonRef.current || { type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: [] } }
-            });
-        }
+        const updateMap = () => {
+            const m = map.current;
+            if (!m || !m.isStyleLoaded()) return;
 
-        if (!map.current.getSource('hover-marker')) {
-            map.current.addSource('hover-marker', {
-                type: 'geojson',
-                data: { type: 'FeatureCollection', features: [] }
-            });
-        }
+            // Sources
+            if (!m.getSource('route')) {
+                m.addSource('route', {
+                    type: 'geojson',
+                    data: routeGeoJson || { type: 'FeatureCollection', features: [] }
+                });
+            }
+            if (!m.getSource('hover-marker')) {
+                m.addSource('hover-marker', {
+                    type: 'geojson',
+                    data: { type: 'FeatureCollection', features: [] }
+                });
+            }
 
-        // Layers
-        if (!map.current.getLayer('route-line')) {
-            map.current.addLayer({
-                id: 'route-line',
-                type: 'line',
-                source: 'route',
-                layout: {
-                    'line-join': 'round',
-                    'line-cap': 'round'
-                },
-                paint: {
-                    'line-color': '#2563eb',
-                    'line-width': 4,
-                    'line-opacity': 0.8
+            // Layers
+            if (!m.getLayer('route-line')) {
+                m.addLayer({
+                    id: 'route-line',
+                    type: 'line',
+                    source: 'route',
+                    layout: { 'line-join': 'round', 'line-cap': 'round' },
+                    paint: { 'line-color': '#2563eb', 'line-width': 4, 'line-opacity': 0.8 }
+                });
+            }
+            if (!m.getLayer('route-hit-area')) {
+                m.addLayer({
+                    id: 'route-hit-area',
+                    type: 'line',
+                    source: 'route',
+                    layout: { 'line-join': 'round', 'line-cap': 'round' },
+                    paint: { 'line-color': 'transparent', 'line-width': 20 }
+                });
+
+                // RE-BIND Layer Listeners (must be re-added when layer is re-added)
+                m.on('mousemove', 'route-hit-area', (e) => {
+                    const { routeGeoJson: currentGeoJson } = useRouteStore.getState();
+                    if (!currentGeoJson) return;
+                    const dist = getDistanceAtCoordinate(currentGeoJson, e.lngLat.lng, e.lngLat.lat);
+                    if (dist !== null) setHoveredDistance(dist);
+                });
+
+                m.on('mouseleave', 'route-hit-area', () => {
+                    setHoveredDistance(null);
+                });
+            }
+            if (!m.getLayer('hover-marker-point')) {
+                m.addLayer({
+                    id: 'hover-marker-point',
+                    type: 'circle',
+                    source: 'hover-marker',
+                    paint: {
+                        'circle-radius': 6,
+                        'circle-color': '#fff',
+                        'circle-stroke-width': 2,
+                        'circle-stroke-color': '#2563eb'
+                    }
+                });
+            }
+
+            // Update Data
+            const routeSource = m.getSource('route') as mapboxgl.GeoJSONSource;
+            if (routeSource) {
+                routeSource.setData(routeGeoJson || { type: 'FeatureCollection', features: [] });
+            }
+
+            const hoverSource = m.getSource('hover-marker') as mapboxgl.GeoJSONSource;
+            if (hoverSource) {
+                if (hoveredDistance !== null && routeGeoJson) {
+                    const coord = getCoordinateAtDistance(routeGeoJson, hoveredDistance);
+                    if (coord) {
+                        hoverSource.setData({
+                            type: 'Feature',
+                            geometry: { type: 'Point', coordinates: coord },
+                            properties: {}
+                        });
+                    }
+                } else {
+                    hoverSource.setData({ type: 'FeatureCollection', features: [] });
                 }
-            });
-        }
+            }
 
-        if (!map.current.getLayer('route-hit-area')) {
-            map.current.addLayer({
-                id: 'route-hit-area',
-                type: 'line',
-                source: 'route',
-                layout: { 'line-join': 'round', 'line-cap': 'round' },
-                paint: {
-                    'line-color': 'transparent',
-                    'line-width': 20
-                }
-            });
-        }
+            // Fit Bounds
+            if (routeGeoJson && useRouteStore.getState().shouldFitBounds) {
+                const bounds = new mapboxgl.LngLatBounds();
+                const coordinates = routeGeoJson.features.flatMap((f: any) =>
+                    f.geometry.type === 'LineString' ? f.geometry.coordinates : []
+                );
 
-        if (!map.current.getLayer('hover-marker-point')) {
-            map.current.addLayer({
-                id: 'hover-marker-point',
-                type: 'circle',
-                source: 'hover-marker',
-                paint: {
-                    'circle-radius': 6,
-                    'circle-color': '#fff',
-                    'circle-stroke-width': 2,
-                    'circle-stroke-color': '#2563eb'
+                if (coordinates.length > 0) {
+                    coordinates.forEach((coord: any) => bounds.extend([coord[0], coord[1]]));
+                    m.fitBounds(bounds, { padding: 50 });
+                    useRouteStore.getState().setShouldFitBounds(false);
                 }
-            });
+            }
+        };
+
+        if (map.current.isStyleLoaded()) {
+            updateMap();
+        } else {
+            map.current.once('style.load', updateMap);
         }
-    }, []);
+    }, [mapStyle, routeGeoJson, hoveredDistance]);
 
     // Initialize Map
     useEffect(() => {
@@ -131,46 +173,18 @@ const MapComponent = () => {
             alert("Could not find your location. Please check browser permissions and ensure you are using HTTPS.");
         });
 
-        // Track Dragging
         map.current.on('dragstart', () => setIsDragging(true));
         map.current.on('dragend', () => setIsDragging(false));
 
-        // Important: Use style.load event to ensure layers are added whenever style changes
-        map.current.on('style.load', () => {
-            setupMapLayers();
-        });
-
         map.current.on('load', () => {
-            // Delay just slightly to ensure everything is ready
             setTimeout(() => {
                 geolocate.trigger();
             }, 1000);
 
-            // Add Click Handler
             map.current?.on('click', (e) => {
-                // If we are clicking on the map (not a marker), add a waypoint
                 if (!useRouteStore.getState().isReadOnly) {
                     addWaypoint(e.lngLat.lng, e.lngLat.lat);
                 }
-            });
-
-            // Map -> Chart Sync Interactions
-            map.current?.on('mousemove', 'route-hit-area', (e) => {
-                const { routeGeoJson } = useRouteStore.getState();
-                if (!routeGeoJson) return;
-
-                const dist = getDistanceAtCoordinate(routeGeoJson, e.lngLat.lng, e.lngLat.lat);
-                if (dist !== null) {
-                    setHoveredDistance(dist);
-                    // Force crosshair if over line, even if default is crosshair (redundant but safe)
-                    // But if dragging, we don't want this.
-                    // Actually, if dragging, mousemove might typically fire?
-                    // Mapbox usually suppresses normal interactions during drag.
-                }
-            });
-
-            map.current?.on('mouseleave', 'route-hit-area', () => {
-                setHoveredDistance(null);
             });
         });
 
@@ -193,72 +207,7 @@ const MapComponent = () => {
         map.current.setStyle(STYLE_URLS[mapStyle]);
     }, [mapStyle]);
 
-    // Update Route Layer & Handle Auto-Zoom
-    useEffect(() => {
-        if (!map.current) return;
-
-        const updateData = () => {
-            const source = map.current?.getSource('route') as mapboxgl.GeoJSONSource;
-            if (source) {
-                source.setData(routeGeoJson || { type: 'FeatureCollection', features: [] });
-
-                if (routeGeoJson && useRouteStore.getState().shouldFitBounds) {
-                    const bounds = new mapboxgl.LngLatBounds();
-                    const coordinates = routeGeoJson.features.flatMap((f: any) => f.geometry.coordinates);
-
-                    if (coordinates && coordinates.length > 0) {
-                        coordinates.forEach((coord: any) => bounds.extend([coord[0], coord[1]]));
-                        map.current?.fitBounds(bounds, { padding: 50 });
-                        useRouteStore.getState().setShouldFitBounds(false);
-                    }
-                }
-            }
-        };
-
-        if (map.current.isStyleLoaded()) {
-            updateData();
-        } else {
-            map.current.once('style.load', updateData);
-        }
-    }, [routeGeoJson]);
-
-    // Handle Hover Sync (Chart -> Map)
-    useEffect(() => {
-        // console.log('DEBUG: Map Effect Triggered. Dist:', hoveredDistance);
-
-        if (!map.current || !map.current.isStyleLoaded()) {
-            // console.warn('DEBUG: Map ref is null');
-            return;
-        }
-
-        const source = map.current.getSource('hover-marker') as mapboxgl.GeoJSONSource;
-        if (!source) {
-            // console.error('DEBUG: Source "hover-marker" NOT found on map');
-            return;
-        }
-
-        // console.log('DEBUG: Source found. Updating...');
-
-        if (hoveredDistance !== null && routeGeoJson) {
-            const coord = getCoordinateAtDistance(routeGeoJson, hoveredDistance);
-            // console.log('DEBUG: Coord Result:', coord);
-
-            if (coord) {
-                source.setData({
-                    type: 'Feature',
-                    geometry: { type: 'Point', coordinates: coord },
-                    properties: {}
-                });
-            } else {
-                console.error('DEBUG: Coord is null. Route:', !!routeGeoJson, 'Dist:', hoveredDistance);
-            }
-        } else {
-            source.setData({ type: 'FeatureCollection', features: [] });
-        }
-    }, [hoveredDistance, routeGeoJson]);
-
-
-    // Update Waypoints (Markers)
+    // Marker management is handled in a separate effect
     const markersRef = useRef<{ [id: string]: mapboxgl.Marker }>({});
 
     useEffect(() => {
