@@ -248,8 +248,11 @@ function App() {
           {/* Logo Branding */}
           <div className="flex flex-col mb-1 px-1">
             <div className="flex items-center gap-2">
-              <img src="/logo.svg" alt="RouteSmith" className="w-8 h-8 object-contain" />
-              <h1 className="text-xl font-bold bg-gradient-to-r from-blue-700 to-blue-500 bg-clip-text text-transparent">RouteSmith</h1>
+              <img src="/logo.png" alt="RouteSmith" className="w-8 h-8 object-contain" />
+              <h1 className="text-xl font-bold">
+                <span className="bg-gradient-to-r from-blue-700 to-blue-500 bg-clip-text text-transparent">Route</span>
+                <span className="text-[#D85A28]">Smith</span>
+              </h1>
             </div>
             <p className="text-xs text-gray-400 font-medium tracking-wide ml-10 -mt-1">Craft Your Route</p>
           </div>
