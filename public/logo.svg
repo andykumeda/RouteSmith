@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" fill="none">
+  <!-- Anvil (Royal Blue) -->
+  <!-- A solid, bold anvil shape -->
+  <path d="M20 45 
+           L20 35 
+           L80 35 
+           L80 45 
+           C80 45 80 60 70 65 
+           C70 65 75 75 85 80 
+           L15 80 
+           C25 75 30 65 30 65 
+           C20 60 20 45 20 45Z" 
+        fill="#2563EB" stroke="#1E40AF" stroke-width="2" stroke-linejoin="round"/>
+
+  <!-- Map Pin (Orange) -->
+  <!-- Positioned as if it's the object being worked on/hovering above -->
+  <path d="M50 10 
+           C63.8 10 75 21.2 75 35 
+           C75 52.5 50 65 50 65 
+           C50 65 25 52.5 25 35 
+           C25 21.2 36.2 10 50 10Z" 
+        fill="#F97316" stroke="#C2410C" stroke-width="2"/>
+  
+  <!-- Pin Center (White/Transparent cutout look) -->
+  <circle cx="50" cy="35" r="8" fill="white"/>
+</svg>

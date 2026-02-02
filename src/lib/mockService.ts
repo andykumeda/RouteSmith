@@ -1,3 +1,6 @@
+import { supabase } from './supabase';
+
+
 export interface User {
     id: string;
     email: string;
@@ -6,15 +9,6 @@ export interface User {
     hometown?: string;
 }
 
-const generateId = () => {
-    try {
-        if (typeof crypto !== 'undefined' && crypto.randomUUID) {
-            return crypto.randomUUID();
-        }
-    } catch (e) { }
-    return Math.random().toString(36).substring(2, 15) + Date.now().toString(36);
-};
-
 export interface RouteData {
     id: string;
     userId: string;
@@ -22,178 +16,245 @@ export interface RouteData {
     isPublic: boolean;
     distance: number;
     elevationGain: number;
-    startLocation: string; // e.g. "San Francisco, CA"
+    startLocation: string;
     createdAt: string;
     updatedAt?: string;
-    previewGeoJson?: GeoJSON.Feature<GeoJSON.LineString>; // Simplified for list view
-    fullGeoJson: GeoJSON.FeatureCollection; // The full route data
+    geoJson: any; // Full GeoJSON
+    // Compatibility fields with mock
+    previewGeoJson?: any;
+    fullGeoJson?: any;
     waypoints?: any[];
     segments?: any[];
-    elevationProfile?: any[];
-    minElevation?: number | null;
-    maxElevation?: number | null;
 }
-
-// Keys for LocalStorage
-const STORAGE_KEY_USERS = 'trailnav_users';
-const STORAGE_KEY_CURRENT_USER = 'trailnav_current_user';
-const STORAGE_KEY_ROUTES = 'trailnav_routes';
 
 export const mockService = {
     // --- Auth ---
-
     signup: async (email: string, password: string, username: string, hometown?: string): Promise<{ user: User | null; error: string | null }> => {
-        // Simulate network delay
-        await new Promise(r => setTimeout(r, 500));
+        try {
+            const { data, error } = await supabase.auth.signUp({
+                email,
+                password,
+                options: {
+                    data: { username, hometown } // These go to user_metadata
+                }
+            });
 
-        const users = JSON.parse(localStorage.getItem(STORAGE_KEY_USERS) || '[]');
+            if (error) return { user: null, error: error.message };
+            if (!data.user) return { user: null, error: 'Signup failed' };
 
-        // Check if email exists
-        if (users.find((u: any) => u.email === email)) {
-            return { user: null, error: 'Email already exists' };
+            // Profile creation is typically handled by DB Trigger.
+            const user: User = {
+                id: data.user.id,
+                email: data.user.email!,
+                username,
+                avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${username}`,
+                hometown
+            };
+            return { user, error: null };
+        } catch (e) {
+            console.error('Signup error:', e);
+            return { user: null, error: 'Network error' };
         }
-
-        const newUser: User = {
-            id: generateId(),
-            email,
-            username,
-            hometown,
-            avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${username}` // Auto-generate mock avatar
-        };
-
-        // Save mock "backend" data (password would be hashed in real app)
-        users.push({ ...newUser, password });
-        localStorage.setItem(STORAGE_KEY_USERS, JSON.stringify(users));
-
-        // Auto-login
-        localStorage.setItem(STORAGE_KEY_CURRENT_USER, JSON.stringify(newUser));
-
-        return { user: newUser, error: null };
     },
 
     login: async (email: string, password: string): Promise<{ user: User | null; error: string | null }> => {
-        await new Promise(r => setTimeout(r, 500));
+        try {
+            const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+            if (error) return { user: null, error: error.message };
 
-        const users = JSON.parse(localStorage.getItem(STORAGE_KEY_USERS) || '[]');
-        const user = users.find((u: any) => u.email === email && u.password === password);
+            // Fetch profile for additional fields
+            const { data: profile } = await supabase.from('profiles').select('*').eq('id', data.user.id).single();
 
-        if (!user) {
-            return { user: null, error: 'Invalid email or password' };
+            const user: User = {
+                id: data.user.id,
+                email: data.user.email!,
+                username: profile?.username || data.user.user_metadata.username || email.split('@')[0],
+                avatar: profile?.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${data.user.email}`,
+                hometown: profile?.hometown
+            };
+
+            // Legacy LocalStorage cleanup/compatibility if needed, but app should rely on this return
+            return { user, error: null };
+        } catch (e) {
+            console.error('Login error:', e);
+            return { user: null, error: 'Network error' };
         }
-
-        const { password: _, ...safeUser } = user;
-        localStorage.setItem(STORAGE_KEY_CURRENT_USER, JSON.stringify(safeUser));
-
-        return { user: safeUser, error: null };
     },
 
     logout: async () => {
-        localStorage.removeItem(STORAGE_KEY_CURRENT_USER);
+        await supabase.auth.signOut();
+        localStorage.removeItem('trailnav_current_user');
     },
 
     getCurrentUser: (): User | null => {
-        const stored = localStorage.getItem(STORAGE_KEY_CURRENT_USER);
-        return stored ? JSON.parse(stored) : null;
+        // Warning: This is synchronous and might not reflect Supabase async state perfectly on reload.
+        // Ideally, the App should use onAuthStateChange. 
+        // For compat, we return null to force re-login or async check if implemented.
+        return null;
+    },
+
+    async getSessionUser(): Promise<User | null> {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session?.user) return null;
+
+        const { data: profile } = await supabase.from('profiles').select('*').eq('id', session.user.id).single();
+
+        return {
+            id: session.user.id,
+            email: session.user.email!,
+            username: profile?.username || session.user.user_metadata.username || '',
+            avatar: profile?.avatar,
+            hometown: profile?.hometown
+        };
     },
 
     updateProfile: async (userId: string, updates: Partial<User>): Promise<{ user: User | null; error: string | null }> => {
-        await new Promise(r => setTimeout(r, 300));
+        const { error } = await supabase.from('profiles').update({
+            username: updates.username,
+            hometown: updates.hometown,
+            avatar: updates.avatar,
+            updated_at: new Date().toISOString()
+        }).eq('id', userId);
 
-        const users = JSON.parse(localStorage.getItem(STORAGE_KEY_USERS) || '[]');
-        const index = users.findIndex((u: any) => u.id === userId);
-
-        if (index === -1) return { user: null, error: 'User not found' };
-
-        const updatedUser = { ...users[index], ...updates };
-        users[index] = updatedUser;
-        localStorage.setItem(STORAGE_KEY_USERS, JSON.stringify(users));
-
-        // Update specific fields on current user session if it matches
-        const currentUser = mockService.getCurrentUser();
-        if (currentUser && currentUser.id === userId) {
-            const { password, ...safeUser } = updatedUser;
-            localStorage.setItem(STORAGE_KEY_CURRENT_USER, JSON.stringify(safeUser));
-            return { user: safeUser, error: null };
-        }
-
-        return { user: null, error: 'Session mismatch' };
+        if (error) return { user: null, error: error.message };
+        return { user: updates as User, error: null };
     },
 
     // --- Route Persistence ---
+    saveRoute: async (_userId: string, route: any): Promise<{ route: RouteData | null; error: string | null }> => {
+        try {
+            // Check for active session
+            const { data: { session } } = await supabase.auth.getSession();
+            if (!session) {
+                console.error('Save Route: No active session.');
+                return { route: null, error: 'Not logged in (or email not confirmed)' };
+            }
 
-    saveRoute: async (userId: string, route: Omit<RouteData, 'id' | 'userId' | 'createdAt'>): Promise<{ route: RouteData | null; error: string | null }> => {
-        await new Promise(r => setTimeout(r, 600)); // Simulate save
+            // We store waypoints AND SEGMENTS inside the jsonb column to preserve them
+            const geoJsonWithData = {
+                ...route.geoJson,
+                waypoints: route.waypoints || [],
+                segments: route.segments || [] // Crucial for Undo functionality
+            };
 
-        const routes = JSON.parse(localStorage.getItem(STORAGE_KEY_ROUTES) || '[]');
+            const payload = {
+                user_id: session.user.id,
+                name: route.name,
+                description: route.description,
+                is_public: route.isPublic,
+                distance: route.distance,
+                elevation_gain: route.elevationGain,
+                start_location: route.startLocation,
+                geojson: geoJsonWithData
+            };
 
-        const newRoute: RouteData = {
-            id: generateId(),
-            userId,
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString(),
-            ...route
-        };
+            const { data, error } = await supabase
+                .from('routes')
+                .insert(payload)
+                .select()
+                .single();
 
-        routes.push(newRoute);
-        localStorage.setItem(STORAGE_KEY_ROUTES, JSON.stringify(routes));
+            if (error) return { route: null, error: error.message };
 
-        return { route: newRoute, error: null };
+            return { route: mapSupabaseRoute(data), error: null };
+        } catch (e) {
+            console.error('Save route error:', e);
+            return { route: null, error: 'Network error' };
+        }
     },
 
-    updateRoute: async (routeId: string, updates: Partial<Omit<RouteData, 'id' | 'userId' | 'createdAt'>>): Promise<{ route: RouteData | null; error: string | null }> => {
-        await new Promise(r => setTimeout(r, 400));
-        const routes: RouteData[] = JSON.parse(localStorage.getItem(STORAGE_KEY_ROUTES) || '[]');
-        const index = routes.findIndex(r => r.id === routeId);
+    updateRoute: async (routeId: string, updates: any): Promise<{ route: RouteData | null; error: string | null }> => {
+        const payload: any = { updated_at: new Date().toISOString() };
+        if (updates.name) payload.name = updates.name;
+        if (updates.isPublic !== undefined) payload.is_public = updates.isPublic;
+        if (updates.geoJson) {
+            const merged = {
+                ...updates.geoJson,
+                waypoints: updates.waypoints || [],
+                segments: updates.segments || []
+            };
+            payload.geojson = merged;
+            payload.distance = updates.distance;
+            payload.elevation_gain = updates.elevationGain;
+        }
 
-        if (index === -1) return { route: null, error: 'Route not found' };
+        const { data, error } = await supabase.from('routes').update(payload).eq('id', routeId).select().single();
+        if (error) return { route: null, error: error.message };
 
-        const updatedRoute = {
-            ...routes[index],
-            ...updates,
-            updatedAt: new Date().toISOString()
-        };
-        routes[index] = updatedRoute;
-        localStorage.setItem(STORAGE_KEY_ROUTES, JSON.stringify(routes));
-
-        return { route: updatedRoute, error: null };
+        return { route: mapSupabaseRoute(data), error: null };
     },
 
     getUserRoutes: async (userId: string): Promise<RouteData[]> => {
-        await new Promise(r => setTimeout(r, 400));
-        const routes: RouteData[] = JSON.parse(localStorage.getItem(STORAGE_KEY_ROUTES) || '[]');
-        return routes
-            .filter((r: RouteData) => r.userId === userId)
-            .sort((a, b) => {
-                const dateA = new Date(a.updatedAt || a.createdAt).getTime();
-                const dateB = new Date(b.updatedAt || b.createdAt).getTime();
-                return dateB - dateA;
-            });
+        try {
+            const { data, error } = await supabase
+                .from('routes')
+                .select('*')
+                .eq('user_id', userId)
+                .order('updated_at', { ascending: false });
+
+            if (error) return [];
+            return data.map(mapSupabaseRoute);
+        } catch (e) {
+            return [];
+        }
     },
 
     deleteRoute: async (routeId: string): Promise<boolean> => {
-        await new Promise(r => setTimeout(r, 300));
-        let routes = JSON.parse(localStorage.getItem(STORAGE_KEY_ROUTES) || '[]');
-        const initialLen = routes.length;
-        routes = routes.filter((r: RouteData) => r.id !== routeId);
-        localStorage.setItem(STORAGE_KEY_ROUTES, JSON.stringify(routes));
-        return routes.length < initialLen;
+        const { error } = await supabase.from('routes').delete().eq('id', routeId);
+        return !error;
     },
 
     getRouteById: async (routeId: string): Promise<RouteData | null> => {
-        await new Promise(r => setTimeout(r, 500));
-        const routes: RouteData[] = JSON.parse(localStorage.getItem(STORAGE_KEY_ROUTES) || '[]');
-        const route = routes.find(r => r.id === routeId);
-        return route || null;
+        const { data, error } = await supabase.from('routes').select('*').eq('id', routeId).single();
+        if (error || !data) return null;
+        return mapSupabaseRoute(data);
     },
 
-    // For Search Phase later
-    searchRoutes: async (query: string): Promise<RouteData[]> => {
-        await new Promise(r => setTimeout(r, 500));
-        const routes: RouteData[] = JSON.parse(localStorage.getItem(STORAGE_KEY_ROUTES) || '[]');
-        const lowerQ = query.toLowerCase();
-        return routes.filter((r: RouteData) =>
-            r.isPublic &&
-            (r.name.toLowerCase().includes(lowerQ) || r.startLocation.toLowerCase().includes(lowerQ))
-        );
+    // Phase 12 Search
+    searchRoutes: async (query: string, filters?: { minDist?: number; maxDist?: number; minElev?: number; maxElev?: number }): Promise<RouteData[]> => {
+        try {
+            let dbQuery = supabase
+                .from('routes')
+                .select('*')
+                .eq('is_public', true)
+                .ilike('name', `%${query}%`)
+                .order('created_at', { ascending: false })
+                .limit(50);
+
+            if (filters?.minDist) dbQuery = dbQuery.gte('distance', filters.minDist);
+            if (filters?.maxDist) dbQuery = dbQuery.lte('distance', filters.maxDist);
+            if (filters?.minElev) dbQuery = dbQuery.gte('elevation_gain', filters.minElev);
+            if (filters?.maxElev) dbQuery = dbQuery.lte('elevation_gain', filters.maxElev);
+
+            const { data, error } = await dbQuery;
+            if (error) return [];
+            return data.map(mapSupabaseRoute);
+        } catch (e) {
+            console.error('Search error:', e);
+            return [];
+        }
+    },
+
+    seedPublicRoutes: async () => {
+        // No-op
     }
 };
+
+function mapSupabaseRoute(row: any): RouteData {
+    return {
+        id: row.id,
+        userId: row.user_id,
+        name: row.name,
+        isPublic: row.is_public,
+        distance: row.distance,
+        elevationGain: row.elevation_gain,
+        startLocation: row.start_location,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+        geoJson: row.geojson,
+        fullGeoJson: row.geojson,
+        previewGeoJson: row.geojson,
+        waypoints: row.geojson?.waypoints || [],
+        segments: row.geojson?.segments || []
+    };
+}

@@ -19,7 +19,7 @@ const STYLE_URLS: Record<MapStyle, string> = {
 const MapComponent = () => {
     const mapContainer = useRef<HTMLDivElement>(null);
     const map = useRef<mapboxgl.Map | null>(null);
-    const { waypoints, addWaypoint, addPOI, updateWaypoint, removeWaypoint, routeGeoJson, hoveredDistance, setHoveredDistance, isReadOnly } = useRouteStore();
+    const { waypoints, addWaypoint, addPOI, updateWaypoint, removeWaypoint, routeGeoJson, hoveredDistance, setHoveredDistance, isReadOnly, routeId } = useRouteStore();
 
     const [selectedPOIType, setSelectedPOIType] = useState<POIType | null>(null);
     const [isDeleteMode, setIsDeleteMode] = useState(false);
@@ -514,26 +514,30 @@ const MapComponent = () => {
             {/* POI & Deletion Toolbar */}
             {!isReadOnly && (
                 <div className="absolute bottom-10 left-4 z-10 flex flex-col gap-2 p-1.5 bg-white/90 backdrop-blur-sm rounded-xl shadow-lg border border-gray-200">
-                    {[
-                        { type: 'water' as POIType, icon: <Droplets size={18} />, color: 'text-blue-500', label: 'Water' },
-                        { type: 'hazard' as POIType, icon: <TriangleAlert size={18} />, color: 'text-amber-500', label: 'Hazard' },
-                        { type: 'closed' as POIType, icon: <CircleSlash size={18} />, color: 'text-red-500', label: 'Closed' },
-                        { type: 'camera' as POIType, icon: <Camera size={18} />, color: 'text-purple-500', label: 'Photo Op' },
-                    ].map((poi) => (
-                        <button
-                            key={poi.type}
-                            onClick={() => {
-                                setIsDeleteMode(false);
-                                setSelectedPOIType(selectedPOIType === poi.type ? null : poi.type);
-                            }}
-                            className={`p-2.5 rounded-lg transition-all flex items-center justify-center hover:scale-110 ${selectedPOIType === poi.type ? 'bg-gray-100 ring-2 ring-blue-400' : 'hover:bg-gray-50'}`}
-                            title={poi.label}
-                        >
-                            <span className={poi.color}>{poi.icon}</span>
-                        </button>
-                    ))}
+                    {routeId && (
+                        <>
+                            {[
+                                { type: 'water' as POIType, icon: <Droplets size={18} />, color: 'text-blue-500', label: 'Water' },
+                                { type: 'hazard' as POIType, icon: <TriangleAlert size={18} />, color: 'text-amber-500', label: 'Hazard' },
+                                { type: 'closed' as POIType, icon: <CircleSlash size={18} />, color: 'text-red-500', label: 'Closed' },
+                                { type: 'camera' as POIType, icon: <Camera size={18} />, color: 'text-purple-500', label: 'Photo Op' },
+                            ].map((poi) => (
+                                <button
+                                    key={poi.type}
+                                    onClick={() => {
+                                        setIsDeleteMode(false);
+                                        setSelectedPOIType(selectedPOIType === poi.type ? null : poi.type);
+                                    }}
+                                    className={`p-2.5 rounded-lg transition-all flex items-center justify-center hover:scale-110 ${selectedPOIType === poi.type ? 'bg-gray-100 ring-2 ring-blue-400' : 'hover:bg-gray-50'}`}
+                                    title={poi.label}
+                                >
+                                    <span className={poi.color}>{poi.icon}</span>
+                                </button>
+                            ))}
 
-                    <div className="h-px bg-gray-100 mx-1" />
+                            <div className="h-px bg-gray-100 mx-1" />
+                        </>
+                    )}
 
                     <button
                         onClick={() => {

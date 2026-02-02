@@ -6,10 +6,12 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "deploy": "npm run build && sudo cp -r dist/* /var/www/routesmith",
     "lint": "eslint .",
     "preview": "vite preview"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.93.3",
     "@tmcw/togeojson": "^7.1.2",
     "@turf/turf": "^7.3.3",
     "@types/mapbox-gl": "^3.4.1",

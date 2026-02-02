@@ -8,10 +8,11 @@ import AuthModal from './components/auth/AuthModal';
 import RouteDashboard from './components/dashboard/RouteDashboard';
 import SettingsModal from './components/settings/SettingsModal';
 import RouteImportModal from './components/modals/RouteImportModal';
-import { Loader2, Settings, Ruler, Mountain, Download, Upload, User as UserIcon, LogOut, Save, BookOpen, Share2, Undo } from 'lucide-react';
+import { Loader2, Settings, Ruler, Mountain, Download, Upload, User as UserIcon, LogOut, Save, BookOpen, Share2, Undo, Plus } from 'lucide-react';
 import { exportToGpx, parseGpx } from './lib/gpxUtils';
 import { mockService } from './lib/mockService';
 import { getPlaceName } from './lib/mapboxUtils';
+import { RouteSearch } from './components/layout/RouteSearch';
 
 function App() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
@@ -43,9 +44,11 @@ function App() {
 
   const { units } = useSettingsStore();
   const { user, logout, checkSession } = useAuthStore();
+  const [activeTab, setActiveTab] = useState<'my_routes' | 'search'>('my_routes');
 
   useEffect(() => {
     checkSession();
+    mockService.seedPublicRoutes(); // Seed data
 
     // Check for route param
     const params = new URLSearchParams(window.location.search);
@@ -61,9 +64,26 @@ function App() {
       setRouteFromImport(route.fullGeoJson);
       setRouteName(route.name);
       setRouteId(route.id); // Track ID
+      setReadOnly(true); // Default to read-only for shared/searched routes
       setIsSidebarOpen(true);
     } else {
       console.error("Route not found");
+      alert("Route not found");
+    }
+  };
+
+  const handleRouteSelect = (route: any) => {
+    if (route.fullGeoJson) {
+      setRouteFromImport(route.fullGeoJson);
+      setRouteName(route.name);
+      setRouteId(route.id);
+      setReadOnly(true); // View mode
+
+      // Auto-switch to "My Routes" view to show stats? Or stay in search?
+      // Staying in search allows browsing. But we need to see stats.
+      // Let's keep the user in the search tab but the map updates.
+      // Actually, standard behavior might be to show details.
+      // For now, let's just load it on the map.
     }
   };
 
@@ -221,10 +241,18 @@ function App() {
 
       {/* Sidebar (Left) */}
       <div
-        className={`bg-white shadow-xl transition-all duration-300 ease-in-out z-30 flex flex-col border-r border-gray-200 ${isSidebarOpen ? 'w-80' : 'w-0'}`}
+        className={`bg-white shadow-xl transition-all duration-300 ease-in-out z-30 flex flex-col border-r border-gray-200 overflow-hidden ${isSidebarOpen ? 'w-80' : 'w-0'}`}
       >
         {/* Header */}
         <div className="p-4 border-b border-gray-100 flex flex-col gap-3 bg-white">
+          {/* Logo Branding */}
+          <div className="flex flex-col mb-1 px-1">
+            <div className="flex items-center gap-2">
+              <img src="/logo.svg" alt="RouteSmith" className="w-8 h-8 object-contain" />
+              <h1 className="text-xl font-bold bg-gradient-to-r from-blue-700 to-blue-500 bg-clip-text text-transparent">RouteSmith</h1>
+            </div>
+            <p className="text-xs text-gray-400 font-medium tracking-wide ml-10 -mt-1">Craft Your Route</p>
+          </div>
           {/* User Profile Bar */}
           <div className="flex items-center justify-between">
             {user ? (
@@ -244,6 +272,17 @@ function App() {
             )}
 
             <div className="flex items-center gap-1">
+              <button
+                onClick={() => {
+                  if (confirm('Start a new route? Unsaved changes will be lost.')) {
+                    clearRoute();
+                  }
+                }}
+                className="p-2 rounded-full hover:bg-green-50 text-green-600 transition-colors"
+                title="Create New Route"
+              >
+                <Plus size={18} />
+              </button>
               {user && (
                 <>
                   <button
@@ -268,150 +307,175 @@ function App() {
             </div>
           </div>
 
-          <div className="flex items-center justify-between gap-2 pt-2 border-t border-gray-50">
-            <input
-              type="text"
-              value={routeName}
-              onChange={(e) => setRouteName(e.target.value)}
-              className="text-lg font-bold text-gray-800 tracking-tight bg-transparent border-b border-transparent hover:border-gray-200 focus:border-blue-500 focus:outline-none w-full truncate placeholder-gray-300"
-              placeholder="Name your route..."
-            />
-            {isFetching && <Loader2 className="animate-spin text-blue-600 shrink-0" size={18} />}
+          {/* Mock Tab Switcher (Visible only if we have tabs) */}
+          <div className="flex p-1 bg-gray-100 rounded-lg">
+            <button
+              onClick={() => setActiveTab('my_routes')}
+              className={`flex-1 py-1.5 text-xs font-semibold rounded-md transition-all ${activeTab === 'my_routes' ? 'bg-white shadow-sm text-blue-600' : 'text-gray-500 hover:text-gray-700'}`}
+            >
+              Plan & Stats
+            </button>
+            <button
+              onClick={() => setActiveTab('search')}
+              className={`flex-1 py-1.5 text-xs font-semibold rounded-md transition-all ${activeTab === 'search' ? 'bg-white shadow-sm text-blue-600' : 'text-gray-500 hover:text-gray-700'}`}
+            >
+              Discover
+            </button>
           </div>
+
+          {activeTab === 'my_routes' && (
+            <div className="flex items-center justify-between gap-2 pt-2 border-t border-gray-50">
+              <input
+                type="text"
+                value={routeName}
+                onChange={(e) => setRouteName(e.target.value)}
+                className="text-lg font-bold text-gray-800 tracking-tight bg-transparent border-b border-transparent hover:border-gray-200 focus:border-blue-500 focus:outline-none w-full truncate placeholder-gray-300"
+                placeholder="Name your route..."
+              />
+              {isFetching && <Loader2 className="animate-spin text-blue-600 shrink-0" size={18} />}
+            </div>
+          )}
         </div>
 
-        {/* Stats Content */}
-        <div className="p-4 flex-1 overflow-y-auto">
-          {/* Primary Stats Card */}
-          <div className="mb-6 bg-slate-50 rounded-xl p-5 border border-slate-100 shadow-sm">
-            <div className="grid grid-cols-1 gap-6">
-              {/* Distance */}
-              <div className="flex items-start justify-between">
-                <div>
-                  <div className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-1 flex items-center gap-1">
-                    <Ruler size={14} /> Distance
-                  </div>
-                  <div className="text-3xl font-extrabold text-slate-800 tracking-tight">
-                    {distanceDisplay}
-                  </div>
-                </div>
-              </div>
-
-              {/* Elevation Gain */}
-              <div className="flex items-start justify-between">
-                <div>
-                  <div className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-1 flex items-center gap-1">
-                    <Mountain size={14} /> Gain
-                  </div>
-                  <div className="text-3xl font-extrabold text-slate-800 tracking-tight">
-                    {elevationDisplay}
+        {/* Sidebar Content Area */}
+        {activeTab === 'search' ? (
+          <div className="flex-1 overflow-hidden">
+            <RouteSearch onSelectRoute={handleRouteSelect} />
+          </div>
+        ) : (
+          /* Original Stats Content */
+          <div className="p-4 flex-1 overflow-y-auto">
+            {/* Primary Stats Card */}
+            <div className="mb-6 bg-slate-50 rounded-xl p-5 border border-slate-100 shadow-sm">
+              <div className="grid grid-cols-1 gap-6">
+                {/* Distance */}
+                <div className="flex items-start justify-between">
+                  <div>
+                    <div className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-1 flex items-center gap-1">
+                      <Ruler size={14} /> Distance
+                    </div>
+                    <div className="text-3xl font-extrabold text-slate-800 tracking-tight">
+                      {distanceDisplay}
+                    </div>
                   </div>
                 </div>
 
-                {/* High/Low */}
-                <div className="border-t border-slate-200/60 pt-4 mt-2 grid grid-cols-2 gap-4">
+                {/* Elevation Gain */}
+                <div className="flex items-start justify-between">
                   <div>
-                    <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-0.5">Highest</div>
-                    <div className="text-sm font-bold text-slate-700">{highLowDisplay.high}</div>
+                    <div className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-1 flex items-center gap-1">
+                      <Mountain size={14} /> Gain
+                    </div>
+                    <div className="text-3xl font-extrabold text-slate-800 tracking-tight">
+                      {elevationDisplay}
+                    </div>
                   </div>
-                  <div>
-                    <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-0.5">Lowest</div>
-                    <div className="text-sm font-bold text-slate-700">{highLowDisplay.low}</div>
+
+                  {/* High/Low */}
+                  <div className="border-t border-slate-200/60 pt-4 mt-2 grid grid-cols-2 gap-4">
+                    <div>
+                      <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-0.5">Highest</div>
+                      <div className="text-sm font-bold text-slate-700">{highLowDisplay.high}</div>
+                    </div>
+                    <div>
+                      <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-0.5">Lowest</div>
+                      <div className="text-sm font-bold text-slate-700">{highLowDisplay.low}</div>
+                    </div>
                   </div>
                 </div>
               </div>
             </div>
-          </div>
 
-          {/* Actions */}
-          <div className="flex flex-col gap-3">
-            {/* Mode Toggle */}
-            {isReadOnly ? (
-              <button
-                onClick={() => setReadOnly(false)}
-                className="w-full py-3 px-4 bg-amber-500 text-white rounded-lg hover:bg-amber-600 transition-all font-bold shadow-md shadow-amber-200 flex items-center justify-center gap-2"
-              >
-                <Settings size={20} /> Edit Route
-              </button>
-            ) : (
-              <div className="flex flex-col gap-2">
-                <div className="flex items-center gap-2 p-1 bg-gray-100 rounded-lg">
+            {/* Actions */}
+            <div className="flex flex-col gap-3">
+              {/* Mode Toggle */}
+              {isReadOnly ? (
+                <button
+                  onClick={() => setReadOnly(false)}
+                  className="w-full py-3 px-4 bg-amber-500 text-white rounded-lg hover:bg-amber-600 transition-all font-bold shadow-md shadow-amber-200 flex items-center justify-center gap-2"
+                >
+                  <Settings size={20} /> Edit Route
+                </button>
+              ) : (
+                <div className="flex flex-col gap-2">
+                  <div className="flex items-center gap-2 p-1 bg-gray-100 rounded-lg">
+                    <button
+                      onClick={() => useRouteStore.getState().setManualMode(false)}
+                      className={`flex-1 py-1.5 px-3 text-xs font-semibold rounded-md transition-all flex items-center justify-center gap-1 ${!useRouteStore.getState().isManualMode
+                        ? 'bg-white text-blue-600 shadow-sm border border-gray-200'
+                        : 'text-gray-500 hover:bg-gray-200'
+                        }`}
+                    >
+                      <span className="w-2 h-2 rounded-full bg-blue-500"></span> Auto
+                    </button>
+                    <button
+                      onClick={() => useRouteStore.getState().setManualMode(true)}
+                      className={`flex-1 py-1.5 px-3 text-xs font-semibold rounded-md transition-all flex items-center justify-center gap-1 ${useRouteStore.getState().isManualMode
+                        ? 'bg-white text-orange-600 shadow-sm border border-gray-200'
+                        : 'text-gray-500 hover:bg-gray-200'
+                        }`}
+                    >
+                      <span className="w-2 h-2 rounded-full bg-orange-500"></span> Manual
+                    </button>
+                  </div>
+
                   <button
-                    onClick={() => useRouteStore.getState().setManualMode(false)}
-                    className={`flex-1 py-1.5 px-3 text-xs font-semibold rounded-md transition-all flex items-center justify-center gap-1 ${!useRouteStore.getState().isManualMode
-                      ? 'bg-white text-blue-600 shadow-sm border border-gray-200'
-                      : 'text-gray-500 hover:bg-gray-200'
-                      }`}
+                    onClick={handleSave}
+                    disabled={isSaving || !user}
+                    className="w-full py-3 px-4 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all font-bold shadow-md shadow-blue-200 flex items-center justify-center gap-2 disabled:opacity-50 disabled:shadow-none"
                   >
-                    <span className="w-2 h-2 rounded-full bg-blue-500"></span> Auto
-                  </button>
-                  <button
-                    onClick={() => useRouteStore.getState().setManualMode(true)}
-                    className={`flex-1 py-1.5 px-3 text-xs font-semibold rounded-md transition-all flex items-center justify-center gap-1 ${useRouteStore.getState().isManualMode
-                      ? 'bg-white text-orange-600 shadow-sm border border-gray-200'
-                      : 'text-gray-500 hover:bg-gray-200'
-                      }`}
-                  >
-                    <span className="w-2 h-2 rounded-full bg-orange-500"></span> Manual
+                    {isSaving ? <Loader2 className="animate-spin" size={20} /> : <Save size={20} />}
+                    Save to My Routes
                   </button>
                 </div>
+              )}
 
+              <button
+                onClick={handleShare}
+                className="w-full py-2 px-4 bg-indigo-50 text-indigo-600 border border-indigo-100 rounded-lg hover:bg-indigo-100 transition-colors font-semibold shadow-sm flex items-center justify-center gap-2"
+              >
+                <Share2 size={18} /> Share Route
+              </button>
+
+              <div className="grid grid-cols-2 gap-3">
                 <button
-                  onClick={handleSave}
-                  disabled={isSaving || !user}
-                  className="w-full py-3 px-4 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all font-bold shadow-md shadow-blue-200 flex items-center justify-center gap-2 disabled:opacity-50 disabled:shadow-none"
+                  onClick={handleExport}
+                  className="py-2 px-4 bg-white border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 text-sm font-medium shadow-sm transition-colors flex items-center justify-center gap-2"
+                  disabled={waypoints.length < 2}
                 >
-                  {isSaving ? <Loader2 className="animate-spin" size={20} /> : <Save size={20} />}
-                  Save to My Routes
+                  <Download size={16} /> Export
+                </button>
+                <label className="py-2 px-4 bg-white border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 text-sm font-medium shadow-sm transition-colors flex items-center justify-center gap-2 cursor-pointer">
+                  <Upload size={16} /> Import
+                  <input
+                    type="file"
+                    accept=".gpx"
+                    className="hidden"
+                    onChange={handleImport}
+                  />
+                </label>
+              </div>
+
+              {/* Undo / Clear Actions */}
+              <div className="flex gap-2">
+                <button
+                  onClick={() => undoLastWaypoint()}
+                  className="flex-1 py-3 px-4 bg-white border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 hover:border-gray-300 transition-all text-sm font-semibold shadow-sm flex items-center justify-center gap-2"
+                  disabled={waypoints.length === 0 || isReadOnly}
+                >
+                  <Undo size={16} /> Undo
+                </button>
+                <button
+                  onClick={clearRoute}
+                  className="flex-1 py-3 px-4 bg-white border border-red-200 text-red-600 rounded-lg hover:bg-red-50 hover:border-red-300 transition-all text-sm font-semibold shadow-sm flex items-center justify-center gap-2"
+                  disabled={waypoints.length === 0}
+                >
+                  <LogOut size={16} className="rotate-180" /> Clear
                 </button>
               </div>
-            )}
-
-            <button
-              onClick={handleShare}
-              className="w-full py-2 px-4 bg-indigo-50 text-indigo-600 border border-indigo-100 rounded-lg hover:bg-indigo-100 transition-colors font-semibold shadow-sm flex items-center justify-center gap-2"
-            >
-              <Share2 size={18} /> Share Route
-            </button>
-
-            <div className="grid grid-cols-2 gap-3">
-              <button
-                onClick={handleExport}
-                className="py-2 px-4 bg-white border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 text-sm font-medium shadow-sm transition-colors flex items-center justify-center gap-2"
-                disabled={waypoints.length < 2}
-              >
-                <Download size={16} /> Export
-              </button>
-              <label className="py-2 px-4 bg-white border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 text-sm font-medium shadow-sm transition-colors flex items-center justify-center gap-2 cursor-pointer">
-                <Upload size={16} /> Import
-                <input
-                  type="file"
-                  accept=".gpx"
-                  className="hidden"
-                  onChange={handleImport}
-                />
-              </label>
-            </div>
-
-            {/* Undo / Clear Actions */}
-            <div className="flex gap-2">
-              <button
-                onClick={() => undoLastWaypoint()}
-                className="flex-1 py-3 px-4 bg-white border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 hover:border-gray-300 transition-all text-sm font-semibold shadow-sm flex items-center justify-center gap-2"
-                disabled={waypoints.length === 0 || isReadOnly}
-              >
-                <Undo size={16} /> Undo
-              </button>
-              <button
-                onClick={clearRoute}
-                className="flex-1 py-3 px-4 bg-white border border-red-200 text-red-600 rounded-lg hover:bg-red-50 hover:border-red-300 transition-all text-sm font-semibold shadow-sm flex items-center justify-center gap-2"
-                disabled={waypoints.length === 0}
-              >
-                <LogOut size={16} className="rotate-180" /> Clear
-              </button>
             </div>
           </div>
-        </div>
+        )}
 
         {/* Sidebar Footer/Toggle Hint */}
         {!isSidebarOpen && (
