@@ -16,7 +16,7 @@ const STYLE_URLS: Record<MapStyle, string> = {
     satellite: 'mapbox://styles/mapbox/satellite-v9'
 };
 
-const MapComponent = () => {
+const MapComponent = ({ isSidebarOpen }: { isSidebarOpen: boolean }) => {
     const mapContainer = useRef<HTMLDivElement>(null);
     const map = useRef<mapboxgl.Map | null>(null);
     const { waypoints, addWaypoint, addPOI, updateWaypoint, removeWaypoint, routeGeoJson, hoveredDistance, setHoveredDistance, isReadOnly, routeId } = useRouteStore();
@@ -40,6 +40,16 @@ const MapComponent = () => {
 
     // Track dragging to toggle cursor
     const [isDragging, setIsDragging] = useState(false);
+
+    // Resize map when sidebar toggles
+    useEffect(() => {
+        if (!map.current) return;
+        // Wait for CSS transition to complete (300ms) before resizing
+        const timer = setTimeout(() => {
+            map.current?.resize();
+        }, 350);
+        return () => clearTimeout(timer);
+    }, [isSidebarOpen]);
 
     // Unified Map Sync Effect
     useEffect(() => {

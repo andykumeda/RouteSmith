@@ -241,7 +241,7 @@ function App() {
 
       {/* Sidebar (Left) */}
       <div
-        className={`bg-white shadow-xl transition-all duration-300 ease-in-out z-30 flex flex-col border-r border-gray-200 overflow-hidden ${isSidebarOpen ? 'w-80' : 'w-0'}`}
+        className={`bg-white transition-all duration-300 ease-in-out z-30 flex flex-col overflow-hidden ${isSidebarOpen ? 'w-80 border-r border-gray-200 shadow-xl' : 'w-0'}`}
       >
         {/* Header */}
         <div className="p-4 border-b border-gray-100 flex flex-col gap-3 bg-white">
@@ -485,7 +485,7 @@ function App() {
       </div>
 
       {/* Main Content (Right) - Split Screen */}
-      <div className="flex-1 flex flex-col relative h-full">
+      <div className="flex-1 flex flex-col relative h-full w-full overflow-hidden">
 
         {/* Sidebar Toggle Button (floating on map) */}
         <button
@@ -497,7 +497,7 @@ function App() {
 
         {/* Top: Map */}
         <div className="flex-grow w-full relative min-h-[50%]">
-          <MapComponent />
+          <MapComponent isSidebarOpen={isSidebarOpen} />
         </div>
 
         {/* Bottom: Elevation Profile */}
