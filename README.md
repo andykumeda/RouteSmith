@@ -1,6 +1,6 @@
-# Trail Nav Pro
+# RouteSmith
 
-Trail Nav Pro is a premium web-based hiking and trail navigation platform. It allows users to plan routes with high-precision path snapping, visualize elevation profiles, and manage personal hiking data using a mock backend.
+RouteSmith is a premium web-based hiking and trail navigation platform. It allows users to plan routes with high-precision path snapping, visualize elevation profiles, and manage personal hiking data using a mock backend.
 
 ## 🚀 Key Features
 

@@ -1,14 +1,14 @@
-# Product Requirements Document: Trail Navigator Pro
+# Product Requirements Document: RouteSmith
 
 ## 1. Executive Summary
 
-**Product Name:** Trail Navigator Pro  
+**Product Name:** RouteSmith  
 **Version:** 1.0  
 **Date:** January 31, 2026  
 **Document Owner:** Product Team
 
 ### 1.1 Purpose
-Trail Navigator Pro is a web-based route planning application for runners, hikers, and cyclists. It enables users to create, modify, and analyze routes through an interactive map interface with intelligent path snapping, GPX import/export, and comprehensive route statistics.
+RouteSmith is a web-based route planning application for runners, hikers, and cyclists. It enables users to create, modify, and analyze routes through an interactive map interface with intelligent path snapping, GPX import/export, and comprehensive route statistics.
 
 ### 1.2 Success Metrics
 - User engagement: Average session duration >10 minutes

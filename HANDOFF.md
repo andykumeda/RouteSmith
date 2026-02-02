@@ -1,4 +1,4 @@
-# Project Handoff: Trail Nav Pro
+# Project Handoff: RouteSmith
 
 This document provides a summary of the current state of the application and the remaining work to be done.
 
