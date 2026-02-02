@@ -6,6 +6,15 @@ export interface User {
     hometown?: string;
 }
 
+const generateId = () => {
+    try {
+        if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+            return crypto.randomUUID();
+        }
+    } catch (e) { }
+    return Math.random().toString(36).substring(2, 15) + Date.now().toString(36);
+};
+
 export interface RouteData {
     id: string;
     userId: string;
@@ -15,8 +24,14 @@ export interface RouteData {
     elevationGain: number;
     startLocation: string; // e.g. "San Francisco, CA"
     createdAt: string;
+    updatedAt?: string;
     previewGeoJson?: GeoJSON.Feature<GeoJSON.LineString>; // Simplified for list view
     fullGeoJson: GeoJSON.FeatureCollection; // The full route data
+    waypoints?: any[];
+    segments?: any[];
+    elevationProfile?: any[];
+    minElevation?: number | null;
+    maxElevation?: number | null;
 }
 
 // Keys for LocalStorage
@@ -39,7 +54,7 @@ export const mockService = {
         }
 
         const newUser: User = {
-            id: crypto.randomUUID(),
+            id: generateId(),
             email,
             username,
             hometown,
@@ -112,9 +127,10 @@ export const mockService = {
         const routes = JSON.parse(localStorage.getItem(STORAGE_KEY_ROUTES) || '[]');
 
         const newRoute: RouteData = {
-            id: crypto.randomUUID(),
+            id: generateId(),
             userId,
             createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
             ...route
         };
 
@@ -124,10 +140,34 @@ export const mockService = {
         return { route: newRoute, error: null };
     },
 
+    updateRoute: async (routeId: string, updates: Partial<Omit<RouteData, 'id' | 'userId' | 'createdAt'>>): Promise<{ route: RouteData | null; error: string | null }> => {
+        await new Promise(r => setTimeout(r, 400));
+        const routes: RouteData[] = JSON.parse(localStorage.getItem(STORAGE_KEY_ROUTES) || '[]');
+        const index = routes.findIndex(r => r.id === routeId);
+
+        if (index === -1) return { route: null, error: 'Route not found' };
+
+        const updatedRoute = {
+            ...routes[index],
+            ...updates,
+            updatedAt: new Date().toISOString()
+        };
+        routes[index] = updatedRoute;
+        localStorage.setItem(STORAGE_KEY_ROUTES, JSON.stringify(routes));
+
+        return { route: updatedRoute, error: null };
+    },
+
     getUserRoutes: async (userId: string): Promise<RouteData[]> => {
         await new Promise(r => setTimeout(r, 400));
         const routes: RouteData[] = JSON.parse(localStorage.getItem(STORAGE_KEY_ROUTES) || '[]');
-        return routes.filter((r: RouteData) => r.userId === userId).sort((a: RouteData, b: RouteData) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+        return routes
+            .filter((r: RouteData) => r.userId === userId)
+            .sort((a, b) => {
+                const dateA = new Date(a.updatedAt || a.createdAt).getTime();
+                const dateB = new Date(b.updatedAt || b.createdAt).getTime();
+                return dateB - dateA;
+            });
     },
 
     deleteRoute: async (routeId: string): Promise<boolean> => {

@@ -17,14 +17,14 @@ export interface Waypoint {
     caption?: string;
 }
 
-interface Segment {
+export interface Segment {
     id: string;
     geometry: GeoJSON.LineString;
     distance: number;
     elevationProfile?: { distance: number; elevation: number }[];
 }
 
-interface ElevationPoint {
+export interface ElevationPoint {
     distance: number; // Cumulative distance from start
     elevation: number;
 }
@@ -59,7 +59,19 @@ interface RouteState {
     setHoveredDistance: (dist: number | null) => void;
     setReadOnly: (readonly: boolean) => void;
     setManualMode: (manual: boolean) => void;
+    loadFullRoute: (data: any) => void;
 }
+
+const generateId = () => {
+    try {
+        if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+            return crypto.randomUUID();
+        }
+    } catch (e) {
+        // Fallback below
+    }
+    return Math.random().toString(36).substring(2, 15) + Date.now().toString(36);
+};
 
 export const useRouteStore = create<RouteState>((set, get) => ({
     waypoints: [],
@@ -87,7 +99,12 @@ export const useRouteStore = create<RouteState>((set, get) => ({
     addWaypoint: async (lng: number, lat: number) => {
         const { waypoints, segments, routeName, isReadOnly, isManualMode } = get();
 
-        if (isReadOnly) return;
+        console.log('[addWaypoint] Called with:', { lng, lat, isReadOnly, waypointCount: waypoints.length });
+
+        if (isReadOnly) {
+            console.warn('[addWaypoint] Blocked: Route is read-only');
+            return;
+        }
 
         if (waypoints.length === 0 && (routeName === "New Route" || routeName === "")) {
             getPlaceName(lng, lat).then(name => {
@@ -100,7 +117,7 @@ export const useRouteStore = create<RouteState>((set, get) => ({
         const routingWaypoints = waypoints.filter(w => w.type !== 'poi');
 
         const newWaypoint: Waypoint = {
-            id: crypto.randomUUID(),
+            id: generateId(),
             lng,
             lat,
             type: routingWaypoints.length === 0 ? 'start' : 'end'
@@ -111,130 +128,143 @@ export const useRouteStore = create<RouteState>((set, get) => ({
             return;
         }
 
+        const lastRoutingWaypoint = routingWaypoints[routingWaypoints.length - 1];
+        const distToLast = calculateDistance(lastRoutingWaypoint.lat, lastRoutingWaypoint.lng, lat, lng);
+
+        // Prevent duplicate points at the same location (e.g. from double clicks)
+        if (distToLast < 0.001) { // 1 meter threshold
+            return;
+        }
+
         set({ isFetching: true });
 
-        const lastRoutingWaypoint = routingWaypoints[routingWaypoints.length - 1];
-        let directionData = null;
+        try {
+            const lastRoutingWaypoint = routingWaypoints[routingWaypoints.length - 1];
+            let directionData = null;
 
-        if (!isManualMode) {
-            directionData = await getDirections(
-                [lastRoutingWaypoint.lng, lastRoutingWaypoint.lat],
-                [lng, lat],
-                'walking'
-            );
-        }
-
-        let newSegment: Segment;
-
-        if (directionData) {
-            newSegment = {
-                id: crypto.randomUUID(),
-                geometry: directionData.geometry,
-                distance: directionData.distance,
-            };
-        } else {
-            newSegment = {
-                id: crypto.randomUUID(),
-                geometry: {
-                    type: 'LineString',
-                    coordinates: [
-                        [lastRoutingWaypoint.lng, lastRoutingWaypoint.lat],
-                        [lng, lat]
-                    ]
-                },
-                distance: calculateDistance(lastRoutingWaypoint.lat, lastRoutingWaypoint.lng, lat, lng)
-            };
-        }
-
-        const segmentCoords = newSegment.geometry.coordinates;
-        const elevations = await getElevationData(segmentCoords);
-
-        const mappedElevationProfile: ElevationPoint[] = [];
-        if (elevations.length > 0) {
-            for (let i = 0; i < elevations.length; i++) {
-                const percent = i / (elevations.length - 1 || 1);
-                const distFromSegmentStart = percent * newSegment.distance;
-                mappedElevationProfile.push({
-                    distance: distFromSegmentStart,
-                    elevation: elevations[i]
-                });
+            if (!isManualMode) {
+                directionData = await getDirections(
+                    [lastRoutingWaypoint.lng, lastRoutingWaypoint.lat],
+                    [lng, lat],
+                    'walking'
+                );
             }
-            newSegment.elevationProfile = mappedElevationProfile;
-        }
 
-        const newSegments = [...segments, newSegment];
+            let newSegment: Segment;
 
-        // Ensure the previous 'end' point becomes a 'route' point
-        const newWaypoints = waypoints.map(wp => {
-            if (wp.id === lastRoutingWaypoint.id && wp.type === 'end') {
-                return { ...wp, type: 'route' as const };
-            }
-            return wp;
-        });
-
-        newWaypoints.push(newWaypoint);
-
-        const allCoordinates = newSegments.flatMap(seg => seg.geometry.coordinates);
-
-        const newRouteGeoJson: GeoJSON.FeatureCollection = {
-            type: 'FeatureCollection',
-            features: [
-                {
-                    type: 'Feature',
-                    properties: {},
+            if (directionData) {
+                newSegment = {
+                    id: generateId(),
+                    geometry: directionData.geometry,
+                    distance: directionData.distance,
+                };
+            } else {
+                newSegment = {
+                    id: generateId(),
                     geometry: {
                         type: 'LineString',
-                        coordinates: allCoordinates
-                    }
-                }
-            ]
-        };
-
-        const newTotalDistance = newSegments.reduce((acc, seg) => acc + seg.distance, 0);
-
-        let currentCumulativeDist = 0;
-        const fullElevationProfile: ElevationPoint[] = [];
-        let elevationGain = 0;
-        const GAIN_THRESHOLD = 2.0;
-
-        let minElev = Infinity;
-        let maxElev = -Infinity;
-
-        newSegments.forEach(seg => {
-            if (seg.elevationProfile && seg.elevationProfile.length > 0) {
-                let referenceElev = seg.elevationProfile[0].elevation;
-
-                seg.elevationProfile.forEach(point => {
-                    fullElevationProfile.push({
-                        distance: currentCumulativeDist + point.distance,
-                        elevation: point.elevation
-                    });
-
-                    if (point.elevation < minElev) minElev = point.elevation;
-                    if (point.elevation > maxElev) maxElev = point.elevation;
-
-                    if (point.elevation > referenceElev + GAIN_THRESHOLD) {
-                        elevationGain += (point.elevation - referenceElev);
-                        referenceElev = point.elevation;
-                    } else if (point.elevation < referenceElev) {
-                        referenceElev = point.elevation;
-                    }
-                });
+                        coordinates: [
+                            [lastRoutingWaypoint.lng, lastRoutingWaypoint.lat],
+                            [lng, lat]
+                        ]
+                    },
+                    distance: calculateDistance(lastRoutingWaypoint.lat, lastRoutingWaypoint.lng, lat, lng)
+                };
             }
-            currentCumulativeDist += seg.distance;
-        });
 
-        set({
-            waypoints: newWaypoints,
-            segments: newSegments,
-            routeGeoJson: newRouteGeoJson,
-            totalDistance: newTotalDistance,
-            elevationProfile: fullElevationProfile,
-            totalElevationGain: elevationGain,
-            minElevation: minElev === Infinity ? null : minElev,
-            maxElevation: maxElev === -Infinity ? null : maxElev,
-            isFetching: false
-        });
+            const segmentCoords = newSegment.geometry.coordinates;
+            const elevations = await getElevationData(segmentCoords);
+
+            const mappedElevationProfile: ElevationPoint[] = [];
+            if (elevations.length > 0) {
+                for (let i = 0; i < elevations.length; i++) {
+                    const percent = i / (elevations.length - 1 || 1);
+                    const distFromSegmentStart = percent * newSegment.distance;
+                    mappedElevationProfile.push({
+                        distance: distFromSegmentStart,
+                        elevation: elevations[i]
+                    });
+                }
+                newSegment.elevationProfile = mappedElevationProfile;
+            }
+
+            const newSegments = [...segments, newSegment];
+
+            // Ensure the previous 'end' point becomes a 'route' point
+            const newWaypoints = waypoints.map(wp => {
+                if (wp.id === lastRoutingWaypoint.id && wp.type === 'end') {
+                    return { ...wp, type: 'route' as const };
+                }
+                return wp;
+            });
+
+            newWaypoints.push(newWaypoint);
+
+            const allCoordinates = newSegments.flatMap(seg => seg.geometry.coordinates);
+
+            const newRouteGeoJson: GeoJSON.FeatureCollection = {
+                type: 'FeatureCollection',
+                features: [
+                    {
+                        type: 'Feature',
+                        properties: {},
+                        geometry: {
+                            type: 'LineString',
+                            coordinates: allCoordinates
+                        }
+                    }
+                ]
+            };
+
+            const newTotalDistance = newSegments.reduce((acc, seg) => acc + seg.distance, 0);
+
+            let currentCumulativeDist = 0;
+            const fullElevationProfile: ElevationPoint[] = [];
+            let elevationGain = 0;
+            const GAIN_THRESHOLD = 2.0;
+
+            let minElev = Infinity;
+            let maxElev = -Infinity;
+
+            newSegments.forEach(seg => {
+                if (seg.elevationProfile && seg.elevationProfile.length > 0) {
+                    let referenceElev = seg.elevationProfile[0].elevation;
+
+                    seg.elevationProfile.forEach(point => {
+                        fullElevationProfile.push({
+                            distance: currentCumulativeDist + point.distance,
+                            elevation: point.elevation
+                        });
+
+                        if (point.elevation < minElev) minElev = point.elevation;
+                        if (point.elevation > maxElev) maxElev = point.elevation;
+
+                        if (point.elevation > referenceElev + GAIN_THRESHOLD) {
+                            elevationGain += (point.elevation - referenceElev);
+                            referenceElev = point.elevation;
+                        } else if (point.elevation < referenceElev) {
+                            referenceElev = point.elevation;
+                        }
+                    });
+                }
+                currentCumulativeDist += seg.distance;
+            });
+
+            set({
+                waypoints: newWaypoints,
+                segments: newSegments,
+                routeGeoJson: newRouteGeoJson,
+                totalDistance: newTotalDistance,
+                elevationProfile: fullElevationProfile,
+                totalElevationGain: elevationGain,
+                minElevation: minElev === Infinity ? null : minElev,
+                maxElevation: maxElev === -Infinity ? null : maxElev,
+            });
+        } catch (error) {
+            console.error("Error adding waypoint:", error);
+        } finally {
+            set({ isFetching: false });
+        }
     },
 
     addPOI: (lng: number, lat: number, type: POIType) => {
@@ -242,7 +272,7 @@ export const useRouteStore = create<RouteState>((set, get) => ({
         if (isReadOnly) return;
 
         const newPOI: Waypoint = {
-            id: crypto.randomUUID(),
+            id: generateId(),
             lng,
             lat,
             type: 'poi',
@@ -263,7 +293,6 @@ export const useRouteStore = create<RouteState>((set, get) => ({
         const newWaypoints = [...waypoints];
         newWaypoints[wpIndex] = { ...oldWP, ...updates };
 
-        // If it's just metadata (comment, date, type), simple update
         const posChanged = updates.lng !== undefined || updates.lat !== undefined;
         const isRoutePoint = oldWP.type === 'start' || oldWP.type === 'end' || oldWP.type === 'route';
 
@@ -272,124 +301,114 @@ export const useRouteStore = create<RouteState>((set, get) => ({
             return;
         }
 
-        // Deep Update: Position of a route point changed. Need to rebuild segments.
         set({ isFetching: true, waypoints: newWaypoints });
 
-        // For simplicity and to avoid complex logic, we'll rebuild all segments 
-        // that are adjacent to the moved point. 
-        // Actually, the current addWaypoint logic is quite cumulative. 
-        // To be robust, let's implement a full rebuild helper later, 
-        // but for now let's just update the neighbors.
+        try {
+            const routingWaypoints = newWaypoints.filter(w => w.type !== 'poi');
+            const routeIdx = routingWaypoints.findIndex(w => w.id === id);
+            const newSegments = [...get().segments];
 
-        // RE-CALCULATION LOGIC (Unified for add/update)
-        // [This will be further refactored if needed, but for now we'll do it surgical]
+            const updateSegmentBetween = async (idxA: number, idxB: number) => {
+                const wpA = routingWaypoints[idxA];
+                const wpB = routingWaypoints[idxB];
 
-        const routingWaypoints = newWaypoints.filter(w => w.type !== 'poi');
-        const routeIdx = routingWaypoints.findIndex(w => w.id === id);
+                let directionData = null;
+                if (!isManualMode) {
+                    directionData = await getDirections(
+                        [wpA.lng, wpA.lat],
+                        [wpB.lng, wpB.lat],
+                        'walking'
+                    );
+                }
 
-        const newSegments = [...get().segments];
+                let seg: Segment;
+                if (directionData) {
+                    seg = {
+                        id: generateId(),
+                        geometry: directionData.geometry,
+                        distance: directionData.distance,
+                    };
+                } else {
+                    seg = {
+                        id: generateId(),
+                        geometry: {
+                            type: 'LineString',
+                            coordinates: [[wpA.lng, wpA.lat], [wpB.lng, wpB.lat]]
+                        },
+                        distance: calculateDistance(wpA.lat, wpA.lng, wpB.lat, wpB.lng)
+                    };
+                }
 
-        const updateSegmentBetween = async (idxA: number, idxB: number) => {
-            const wpA = routingWaypoints[idxA];
-            const wpB = routingWaypoints[idxB];
+                const elevations = await getElevationData(seg.geometry.coordinates);
+                if (elevations.length > 0) {
+                    seg.elevationProfile = elevations.map((e, i) => ({
+                        distance: (i / (elevations.length - 1 || 1)) * seg.distance,
+                        elevation: e
+                    }));
+                }
+                return seg;
+            };
 
-            let directionData = null;
-            if (!isManualMode) {
-                directionData = await getDirections(
-                    [wpA.lng, wpA.lat],
-                    [wpB.lng, wpB.lat],
-                    'walking'
-                );
+            if (routeIdx > 0) {
+                newSegments[routeIdx - 1] = await updateSegmentBetween(routeIdx - 1, routeIdx);
+            }
+            if (routeIdx < routingWaypoints.length - 1) {
+                newSegments[routeIdx] = await updateSegmentBetween(routeIdx, routeIdx + 1);
             }
 
-            let seg: Segment;
-            if (directionData) {
-                seg = {
-                    id: crypto.randomUUID(),
-                    geometry: directionData.geometry,
-                    distance: directionData.distance,
-                };
-            } else {
-                seg = {
-                    id: crypto.randomUUID(),
-                    geometry: {
-                        type: 'LineString',
-                        coordinates: [[wpA.lng, wpA.lat], [wpB.lng, wpB.lat]]
-                    },
-                    distance: calculateDistance(wpA.lat, wpA.lng, wpB.lat, wpB.lng)
-                };
-            }
+            const allCoordinates = newSegments.flatMap(seg => seg.geometry.coordinates);
+            const newRouteGeoJson: GeoJSON.FeatureCollection = {
+                type: 'FeatureCollection',
+                features: [{
+                    type: 'Feature',
+                    properties: {},
+                    geometry: { type: 'LineString', coordinates: allCoordinates }
+                }]
+            };
 
-            const elevations = await getElevationData(seg.geometry.coordinates);
-            if (elevations.length > 0) {
-                const profile: ElevationPoint[] = elevations.map((e, i) => ({
-                    distance: (i / (elevations.length - 1 || 1)) * seg.distance,
-                    elevation: e
-                }));
-                seg.elevationProfile = profile;
-            }
-            return seg;
-        };
+            const newTotalDistance = newSegments.reduce((acc, seg) => acc + seg.distance, 0);
+            let currentCumulativeDist = 0;
+            const fullElevationProfile: ElevationPoint[] = [];
+            let elevationGain = 0;
+            const GAIN_THRESHOLD = 2.0;
+            let minElev = Infinity;
+            let maxElev = -Infinity;
 
-        // If routeIdx > 0, update segment to previous
-        if (routeIdx > 0) {
-            newSegments[routeIdx - 1] = await updateSegmentBetween(routeIdx - 1, routeIdx);
-        }
-        // If routeIdx < routingWaypoints.length - 1, update segment to next
-        if (routeIdx < routingWaypoints.length - 1) {
-            newSegments[routeIdx] = await updateSegmentBetween(routeIdx, routeIdx + 1);
-        }
-
-        // Re-assemble full route from segments
-        const allCoordinates = newSegments.flatMap(seg => seg.geometry.coordinates);
-        const newRouteGeoJson: GeoJSON.FeatureCollection = {
-            type: 'FeatureCollection',
-            features: [{
-                type: 'Feature',
-                properties: {},
-                geometry: { type: 'LineString', coordinates: allCoordinates }
-            }]
-        };
-
-        const newTotalDistance = newSegments.reduce((acc, seg) => acc + seg.distance, 0);
-        let currentCumulativeDist = 0;
-        const fullElevationProfile: ElevationPoint[] = [];
-        let elevationGain = 0;
-        const GAIN_THRESHOLD = 2.0;
-        let minElev = Infinity;
-        let maxElev = -Infinity;
-
-        newSegments.forEach(seg => {
-            if (seg.elevationProfile) {
-                let referenceElev = seg.elevationProfile[0].elevation;
-                seg.elevationProfile.forEach(point => {
-                    fullElevationProfile.push({
-                        distance: currentCumulativeDist + point.distance,
-                        elevation: point.elevation
+            newSegments.forEach(seg => {
+                if (seg.elevationProfile) {
+                    let referenceElev = seg.elevationProfile[0].elevation;
+                    seg.elevationProfile.forEach(point => {
+                        fullElevationProfile.push({
+                            distance: currentCumulativeDist + point.distance,
+                            elevation: point.elevation
+                        });
+                        if (point.elevation < minElev) minElev = point.elevation;
+                        if (point.elevation > maxElev) maxElev = point.elevation;
+                        if (point.elevation > referenceElev + GAIN_THRESHOLD) {
+                            elevationGain += (point.elevation - referenceElev);
+                            referenceElev = point.elevation;
+                        } else if (point.elevation < referenceElev) {
+                            referenceElev = point.elevation;
+                        }
                     });
-                    if (point.elevation < minElev) minElev = point.elevation;
-                    if (point.elevation > maxElev) maxElev = point.elevation;
-                    if (point.elevation > referenceElev + GAIN_THRESHOLD) {
-                        elevationGain += (point.elevation - referenceElev);
-                        referenceElev = point.elevation;
-                    } else if (point.elevation < referenceElev) {
-                        referenceElev = point.elevation;
-                    }
-                });
-            }
-            currentCumulativeDist += seg.distance;
-        });
+                }
+                currentCumulativeDist += seg.distance;
+            });
 
-        set({
-            segments: newSegments,
-            routeGeoJson: newRouteGeoJson,
-            totalDistance: newTotalDistance,
-            elevationProfile: fullElevationProfile,
-            totalElevationGain: elevationGain,
-            minElevation: minElev === Infinity ? null : minElev,
-            maxElevation: maxElev === -Infinity ? null : maxElev,
-            isFetching: false
-        });
+            set({
+                segments: newSegments,
+                routeGeoJson: newRouteGeoJson,
+                totalDistance: newTotalDistance,
+                elevationProfile: fullElevationProfile,
+                totalElevationGain: elevationGain,
+                minElevation: minElev === Infinity ? null : minElev,
+                maxElevation: maxElev === -Infinity ? null : maxElev,
+            });
+        } catch (error) {
+            console.error("Error updating waypoint:", error);
+        } finally {
+            set({ isFetching: false });
+        }
     },
 
     undoLastWaypoint: () => {
@@ -526,114 +545,118 @@ export const useRouteStore = create<RouteState>((set, get) => ({
 
         set({ isFetching: true });
 
-        if (rIdx === routingWaypoints.length - 1) {
-            // Case: End point removed. Just truncate the last segment.
-            newSegments = segments.slice(0, -1);
+        try {
+            if (rIdx === routingWaypoints.length - 1) {
+                // Case: End point removed. Just truncate the last segment.
+                newSegments = segments.slice(0, -1);
 
-            // Mark new last routing point as 'end'
-            const nextLastRoutingWP = routingWaypoints[rIdx - 1];
-            const finalWaypoints = newWaypoints.map(wp =>
-                wp.id === nextLastRoutingWP.id ? { ...wp, type: 'end' as const } : wp
-            );
-
-            set({ waypoints: finalWaypoints });
-        } else {
-            // Case: Intermediate point removed. Re-connect neighbors.
-            const wpBefore = routingWaypoints[rIdx - 1];
-            const wpAfter = routingWaypoints[rIdx + 1];
-
-            // Update waypoints list first
-            set({ waypoints: newWaypoints });
-
-            let directionData = null;
-            if (!isManualMode) {
-                directionData = await getDirections(
-                    [wpBefore.lng, wpBefore.lat],
-                    [wpAfter.lng, wpAfter.lat],
-                    'walking'
+                // Mark new last routing point as 'end'
+                const nextLastRoutingWP = routingWaypoints[rIdx - 1];
+                const finalWaypoints = newWaypoints.map(wp =>
+                    wp.id === nextLastRoutingWP.id ? { ...wp, type: 'end' as const } : wp
                 );
-            }
 
-            let newSeg: Segment;
-            if (directionData) {
-                newSeg = {
-                    id: crypto.randomUUID(),
-                    geometry: directionData.geometry,
-                    distance: directionData.distance,
-                };
+                set({ waypoints: finalWaypoints });
             } else {
-                newSeg = {
-                    id: crypto.randomUUID(),
-                    geometry: {
-                        type: 'LineString',
-                        coordinates: [[wpBefore.lng, wpBefore.lat], [wpAfter.lng, wpAfter.lat]]
-                    },
-                    distance: calculateDistance(wpBefore.lat, wpBefore.lng, wpAfter.lat, wpAfter.lng)
-                };
+                // Case: Intermediate point removed. Re-connect neighbors.
+                const wpBefore = routingWaypoints[rIdx - 1];
+                const wpAfter = routingWaypoints[rIdx + 1];
+
+                // Update waypoints list first
+                set({ waypoints: newWaypoints });
+
+                let directionData = null;
+                if (!isManualMode) {
+                    directionData = await getDirections(
+                        [wpBefore.lng, wpBefore.lat],
+                        [wpAfter.lng, wpAfter.lat],
+                        'walking'
+                    );
+                }
+
+                let newSeg: Segment;
+                if (directionData) {
+                    newSeg = {
+                        id: generateId(),
+                        geometry: directionData.geometry,
+                        distance: directionData.distance,
+                    };
+                } else {
+                    newSeg = {
+                        id: generateId(),
+                        geometry: {
+                            type: 'LineString',
+                            coordinates: [[wpBefore.lng, wpBefore.lat], [wpAfter.lng, wpAfter.lat]]
+                        },
+                        distance: calculateDistance(wpBefore.lat, wpBefore.lng, wpAfter.lat, wpAfter.lng)
+                    };
+                }
+
+                const elevations = await getElevationData(newSeg.geometry.coordinates);
+                if (elevations.length > 0) {
+                    newSeg.elevationProfile = elevations.map((e, i) => ({
+                        distance: (i / (elevations.length - 1 || 1)) * newSeg.distance,
+                        elevation: e
+                    }));
+                }
+                // Replace two segments with one new one
+                newSegments.splice(rIdx - 1, 2, newSeg);
             }
 
-            const elevations = await getElevationData(newSeg.geometry.coordinates);
-            if (elevations.length > 0) {
-                newSeg.elevationProfile = elevations.map((e, i) => ({
-                    distance: (i / (elevations.length - 1 || 1)) * newSeg.distance,
-                    elevation: e
-                }));
-            }
+            // Shared Route Rebuild Logic
+            const allCoordinates = newSegments.flatMap(seg => seg.geometry.coordinates);
+            const newRouteGeoJson: GeoJSON.FeatureCollection | null = allCoordinates.length > 0 ? {
+                type: 'FeatureCollection',
+                features: [{
+                    type: 'Feature',
+                    properties: {},
+                    geometry: { type: 'LineString', coordinates: allCoordinates }
+                }]
+            } : null;
 
-            // Replace two segments with one new one
-            newSegments.splice(rIdx - 1, 2, newSeg);
-        }
+            const newTotalDistance = newSegments.reduce((acc, seg) => acc + seg.distance, 0);
+            let currentCumulativeDist = 0;
+            const fullElevationProfile: ElevationPoint[] = [];
+            let elevationGain = 0;
+            const GAIN_THRESHOLD = 2.0;
+            let minElev = Infinity;
+            let maxElev = -Infinity;
 
-        // Shared Route Rebuild Logic
-        const allCoordinates = newSegments.flatMap(seg => seg.geometry.coordinates);
-        const newRouteGeoJson: GeoJSON.FeatureCollection | null = allCoordinates.length > 0 ? {
-            type: 'FeatureCollection',
-            features: [{
-                type: 'Feature',
-                properties: {},
-                geometry: { type: 'LineString', coordinates: allCoordinates }
-            }]
-        } : null;
-
-        const newTotalDistance = newSegments.reduce((acc, seg) => acc + seg.distance, 0);
-        let currentCumulativeDist = 0;
-        const fullElevationProfile: ElevationPoint[] = [];
-        let elevationGain = 0;
-        const GAIN_THRESHOLD = 2.0;
-        let minElev = Infinity;
-        let maxElev = -Infinity;
-
-        newSegments.forEach(seg => {
-            if (seg.elevationProfile) {
-                let referenceElev = seg.elevationProfile[0].elevation;
-                seg.elevationProfile.forEach(point => {
-                    fullElevationProfile.push({
-                        distance: currentCumulativeDist + point.distance,
-                        elevation: point.elevation
+            newSegments.forEach(seg => {
+                if (seg.elevationProfile) {
+                    let referenceElev = seg.elevationProfile[0].elevation;
+                    seg.elevationProfile.forEach(point => {
+                        fullElevationProfile.push({
+                            distance: currentCumulativeDist + point.distance,
+                            elevation: point.elevation
+                        });
+                        if (point.elevation < minElev) minElev = point.elevation;
+                        if (point.elevation > maxElev) maxElev = point.elevation;
+                        if (point.elevation > referenceElev + GAIN_THRESHOLD) {
+                            elevationGain += (point.elevation - referenceElev);
+                            referenceElev = point.elevation;
+                        } else if (point.elevation < referenceElev) {
+                            referenceElev = point.elevation;
+                        }
                     });
-                    if (point.elevation < minElev) minElev = point.elevation;
-                    if (point.elevation > maxElev) maxElev = point.elevation;
-                    if (point.elevation > referenceElev + GAIN_THRESHOLD) {
-                        elevationGain += (point.elevation - referenceElev);
-                        referenceElev = point.elevation;
-                    } else if (point.elevation < referenceElev) {
-                        referenceElev = point.elevation;
-                    }
-                });
-            }
-            currentCumulativeDist += seg.distance;
-        });
+                }
+                currentCumulativeDist += seg.distance;
+            });
 
-        set({
-            segments: newSegments,
-            routeGeoJson: newRouteGeoJson,
-            totalDistance: newTotalDistance,
-            elevationProfile: fullElevationProfile,
-            totalElevationGain: elevationGain,
-            minElevation: minElev === Infinity ? null : minElev,
-            maxElevation: maxElev === -Infinity ? null : maxElev,
-            isFetching: false
-        });
+            set({
+                segments: newSegments,
+                routeGeoJson: newRouteGeoJson,
+                totalDistance: newTotalDistance,
+                elevationProfile: fullElevationProfile,
+                totalElevationGain: elevationGain,
+                minElevation: minElev === Infinity ? null : minElev,
+                maxElevation: maxElev === -Infinity ? null : maxElev,
+            });
+        } catch (error) {
+            console.error("Error removing waypoint:", error);
+        } finally {
+            set({ isFetching: false });
+        }
     },
 
     clearRoute: () => set({
@@ -647,6 +670,7 @@ export const useRouteStore = create<RouteState>((set, get) => ({
         maxElevation: null,
         shouldFitBounds: false,
         routeName: "New Route",
+        routeId: null,
         hoveredDistance: null,
         isReadOnly: false
     }),
@@ -665,8 +689,8 @@ export const useRouteStore = create<RouteState>((set, get) => ({
         const startCoord = coords[0];
         const endCoord = coords[coords.length - 1];
 
-        const startWP: Waypoint = { id: crypto.randomUUID(), lng: startCoord[0], lat: startCoord[1], type: 'start' };
-        const endWP: Waypoint = { id: crypto.randomUUID(), lng: endCoord[0], lat: endCoord[1], type: 'end' };
+        const startWP: Waypoint = { id: generateId(), lng: startCoord[0], lat: startCoord[1], type: 'start' };
+        const endWP: Waypoint = { id: generateId(), lng: endCoord[0], lat: endCoord[1], type: 'end' };
 
         let dist = 0;
         let gain = 0;
@@ -685,22 +709,20 @@ export const useRouteStore = create<RouteState>((set, get) => ({
             }
 
             const ele = curr[2] || 0;
-            if (ele !== undefined) {
-                elevationProfile.push({ distance: dist, elevation: ele });
-                if (ele < minElev) minElev = ele;
-                if (ele > maxElev) maxElev = ele;
+            elevationProfile.push({ distance: dist, elevation: ele });
+            if (ele < minElev) minElev = ele;
+            if (ele > maxElev) maxElev = ele;
 
-                if (ele > referenceElev + GAIN_THRESHOLD) {
-                    gain += (ele - referenceElev);
-                    referenceElev = ele;
-                } else if (ele < referenceElev) {
-                    referenceElev = ele;
-                }
+            if (ele > referenceElev + GAIN_THRESHOLD) {
+                gain += (ele - referenceElev);
+                referenceElev = ele;
+            } else if (ele < referenceElev) {
+                referenceElev = ele;
             }
         }
 
         const segment: Segment = {
-            id: crypto.randomUUID(),
+            id: generateId(),
             geometry: trackFeature.geometry,
             distance: dist,
             elevationProfile: elevationProfile
@@ -722,6 +744,32 @@ export const useRouteStore = create<RouteState>((set, get) => ({
             shouldFitBounds: true,
             routeName: importedName,
             isReadOnly: true
+        });
+    },
+
+    loadFullRoute: (data: any) => {
+        console.log('[loadFullRoute] Loading route:', {
+            name: data.name,
+            waypoints: data.waypoints?.length,
+            segments: data.segments?.length,
+            hasGeoJson: !!data.fullGeoJson,
+            geoJsonFeatures: data.fullGeoJson?.features?.length
+        });
+
+        set({
+            waypoints: data.waypoints || [],
+            segments: data.segments || [],
+            routeGeoJson: data.fullGeoJson || null,
+            totalDistance: data.distance || 0,
+            totalElevationGain: data.elevationGain || 0,
+            elevationProfile: data.elevationProfile || [],
+            minElevation: data.minElevation || null,
+            maxElevation: data.maxElevation || null,
+            routeName: data.name || "Untitled Route",
+            routeId: data.id || null,
+            isReadOnly: true,
+            isFetching: false,
+            shouldFitBounds: true
         });
     }
 }));

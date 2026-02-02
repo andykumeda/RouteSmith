@@ -7,6 +7,7 @@ import ElevationProfile from './components/layout/ElevationProfile';
 import AuthModal from './components/auth/AuthModal';
 import RouteDashboard from './components/dashboard/RouteDashboard';
 import SettingsModal from './components/settings/SettingsModal';
+import RouteImportModal from './components/modals/RouteImportModal';
 import { Loader2, Settings, Ruler, Mountain, Download, Upload, User as UserIcon, LogOut, Save, BookOpen, Share2, Undo } from 'lucide-react';
 import { exportToGpx, parseGpx } from './lib/gpxUtils';
 import { mockService } from './lib/mockService';
@@ -17,6 +18,7 @@ function App() {
   const [isAuthModalOpen, setAuthModalOpen] = useState(false);
   const [isDashboardOpen, setDashboardOpen] = useState(false);
   const [isSettingsOpen, setSettingsOpen] = useState(false);
+  const [isImportModalOpen, setImportModalOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
   const {
@@ -91,35 +93,79 @@ function App() {
 
     setIsSaving(true);
 
-    // Get location string for metadata
-    let startLocation = "Unknown Location";
-    if (waypoints.length > 0) {
-      const loc = await getPlaceName(waypoints[0].lng, waypoints[0].lat);
-      if (loc) startLocation = loc;
-    }
+    try {
+      const {
+        routeId,
+        waypoints: currentWaypoints,
+        segments,
+        elevationProfile: currentProfile,
+        minElevation: currentMin,
+        maxElevation: currentMax,
+        routeName: currentName,
+        totalDistance: currentDist,
+        totalElevationGain: currentGain,
+        routeGeoJson: currentGeoJson
+      } = useRouteStore.getState();
 
-    // Feature Collection for full save
-    const fullGeoJson: GeoJSON.FeatureCollection = {
-      type: 'FeatureCollection',
-      features: routeGeoJson ? routeGeoJson.features : []
-    };
+      // Get location string for metadata
+      let startLocation = "Unknown Location";
+      if (currentWaypoints.length > 0) {
+        try {
+          const loc = await getPlaceName(currentWaypoints[0].lng, currentWaypoints[0].lat);
+          if (loc) startLocation = loc;
+        } catch (err) {
+          console.warn('[handleSave] Failed to get place name:', err);
+          // Continue with "Unknown Location"
+        }
+      }
 
-    const { error, route } = await mockService.saveRoute(user.id, {
-      name: routeName,
-      isPublic: false,
-      distance: totalDistance,
-      elevationGain: totalElevationGain,
-      startLocation: startLocation,
-      fullGeoJson: fullGeoJson
-    });
+      const payload = {
+        name: currentName,
+        isPublic: false,
+        distance: currentDist,
+        elevationGain: currentGain,
+        startLocation: startLocation,
+        fullGeoJson: currentGeoJson || { type: 'FeatureCollection', features: [] },
+        waypoints: currentWaypoints,
+        segments: segments,
+        elevationProfile: currentProfile,
+        minElevation: currentMin,
+        maxElevation: currentMax
+      };
 
-    setIsSaving(false);
+      console.log('[handleSave] Saving route:', {
+        name: payload.name,
+        waypoints: payload.waypoints.length,
+        segments: payload.segments.length,
+        hasGeoJson: !!payload.fullGeoJson,
+        geoJsonFeatures: payload.fullGeoJson?.features?.length,
+        routeId: routeId
+      });
 
-    if (!error && route) {
-      alert('Route saved successfully!');
-      setRouteId(route.id); // Update ID in store
-    } else {
-      alert('Failed to save route.');
+      const response = routeId
+        ? await mockService.updateRoute(routeId, payload)
+        : await mockService.saveRoute(user.id, payload);
+
+      const { error, route } = response;
+
+      if (!error && route) {
+        const wasReadOnly = isReadOnly;
+        setRouteId(route.id); // Update ID in store
+
+        if (wasReadOnly) {
+          alert('Route saved successfully!');
+        } else {
+          alert('Route saved successfully! You can continue editing or click "Edit Route" to modify it later.');
+        }
+      } else {
+        console.error('[handleSave] Save failed:', error);
+        alert('Failed to save route: ' + (error || 'Unknown error'));
+      }
+    } catch (err) {
+      console.error('[handleSave] Exception during save:', err);
+      alert('Error saving route: ' + (err instanceof Error ? err.message : 'Unknown error'));
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -143,7 +189,10 @@ function App() {
     const file = e.target.files?.[0];
     if (!file) return;
     const geoJson = await parseGpx(file);
-    if (geoJson) setRouteFromImport(geoJson);
+    if (geoJson) {
+      setRouteFromImport(geoJson);
+      setImportModalOpen(true);
+    }
     e.target.value = '';
   };
 
@@ -164,6 +213,11 @@ function App() {
       <AuthModal isOpen={isAuthModalOpen} onClose={() => setAuthModalOpen(false)} />
       <RouteDashboard isOpen={isDashboardOpen} onClose={() => setDashboardOpen(false)} />
       <SettingsModal isOpen={isSettingsOpen} onClose={() => setSettingsOpen(false)} />
+      <RouteImportModal
+        isOpen={isImportModalOpen}
+        onClose={() => setImportModalOpen(false)}
+        onSave={handleSave}
+      />
 
       {/* Sidebar (Left) */}
       <div
@@ -304,7 +358,7 @@ function App() {
 
                 <button
                   onClick={handleSave}
-                  disabled={waypoints.length < 2 || isSaving}
+                  disabled={isSaving || !user}
                   className="w-full py-3 px-4 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all font-bold shadow-md shadow-blue-200 flex items-center justify-center gap-2 disabled:opacity-50 disabled:shadow-none"
                 >
                   {isSaving ? <Loader2 className="animate-spin" size={20} /> : <Save size={20} />}

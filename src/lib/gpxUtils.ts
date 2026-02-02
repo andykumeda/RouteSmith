@@ -8,6 +8,19 @@ interface ElevationPoint {
     elevation: number;
 }
 
+const escapeXml = (unsafe: string): string => {
+    return unsafe.replace(/[<>&'"]/g, (c) => {
+        switch (c) {
+            case '<': return '&lt;';
+            case '>': return '&gt;';
+            case '&': return '&amp;';
+            case '\'': return '&apos;';
+            case '"': return '&quot;';
+            default: return c;
+        }
+    });
+};
+
 export const exportToGpx = (
     routeGeoJson: GeoJSON.FeatureCollection | GeoJSON.Feature<GeoJSON.LineString> | null,
     elevationProfile: ElevationPoint[],
@@ -25,62 +38,85 @@ export const exportToGpx = (
     }
 
     const coords = lineFeature.geometry.coordinates;
+    const escapedRouteName = escapeXml(routeName || "Exported Route");
 
-    // header
-    let gpx = `<?xml version="1.0" encoding="UTF-8"?>
-<gpx version="1.1" creator="TrailNavigatorPro" xmlns="http://www.topografix.com/GPX/1/1">
-  <trk>
-    <name>${routeName}</name>
+    // Header with full schema validation for maximum compatibility
+    let gpxText = `<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="TrailNavPro" xmlns="http://www.topografix.com/GPX/1/1" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.topografix.com/GPX/1/1 http://www.topografix.com/GPX/1/1/gpx.xsd">
+`;
+
+    // Waypoint points (wpt) - only export meaningful waypoints
+    console.log('[GPX Export] Total waypoints:', waypoints.length);
+    waypoints.forEach((wp, index) => {
+        console.log(`[GPX Export] Waypoint ${index}:`, { type: wp.type, poiType: wp.poiType, lat: wp.lat, lng: wp.lng });
+
+        if (!wp.lat || !wp.lng) return;
+
+        // Skip intermediate routing waypoints (type='route') - they're just for path calculation
+        // Only export start, end, and POI waypoints
+        if (wp.type === 'route') {
+            console.log(`[GPX Export] Skipping routing waypoint ${index}`);
+            return;
+        }
+
+        let label = 'Waypoint';
+        if (wp.type === 'start') label = 'Start';
+        else if (wp.type === 'end') label = 'Finish';
+        else if (wp.type === 'poi') {
+            label = wp.poiType ? wp.poiType.charAt(0).toUpperCase() + wp.poiType.slice(1) : 'POI';
+        } else {
+            label = `Point ${index + 1}`;
+        }
+
+        const escapedLabel = escapeXml(label);
+
+        gpxText += `  <wpt lat="${wp.lat}" lon="${wp.lng}">
+    <name>${escapedLabel}</name>
+`;
+        if (wp.elevation) {
+            gpxText += `    <ele>${wp.elevation}</ele>
+`;
+        }
+
+        // Add comment if present
+        if (wp.comment) {
+            const escapedComment = escapeXml(wp.comment);
+            gpxText += `    <cmt>${escapedComment}</cmt>
+`;
+        }
+
+        gpxText += `  </wpt>
+`;
+    });
+
+    // Track
+    gpxText += `  <trk>
+    <name>${escapedRouteName}</name>
     <trkseg>
 `;
 
-    // waypoint points
-    let wptSection = '';
-    waypoints.filter(wp => wp.type === 'poi').forEach(wp => {
-        const name = wp.poiType ? wp.poiType.charAt(0).toUpperCase() + wp.poiType.slice(1) : 'Waypoint';
-        wptSection += `  <wpt lat="${wp.lat}" lon="${wp.lng}">\n    <name>${name}</name>\n    <sym>${name}</sym>\n  </wpt>\n`;
-    });
-
-    // Merge wptSection into Header
-    gpx = gpx.replace('<trk>', wptSection + '  <trk>');
-
-    // track points
-    // We try to match elevation to coordinates.
-    // Ideally we have 1:1 mapping if we fetched elevation for every point.
-    // If not, we might skip elevation or interpolate. 
-    // For now, we assume simple mapping or just dump coords if length differs largely.
-
-    // In our current implementation, we fetch elevation for ALL coords in segments.
-    // However, segments are separate. routeGeoJson is concatenated.
-    // Let's assume the order matches.
-
-    // Actually, store keeps elevationProfile with cumulative distance, not aligned by index 1:1 necessarily 
-    // depending on how we constructed it.
-    // BUT checking useRouteStore: "newElevationProfile = [...currentProfile, ...newElevationPoints];"
-    // And "elevations = await getElevationData(segmentCoords)".
-    // So usually there is one elevation point per coordinate.
-
+    // Track points
     coords.forEach((coord, index) => {
         const lng = coord[0];
         const lat = coord[1];
-        let eleString = '';
+        // Elevation: use profile if available, fallback to coordinate[2] if present
+        const ele = (index < elevationProfile.length) ? elevationProfile[index].elevation : (coord[2] || null);
 
-        // Try to find elevation. 
-        // Note: elevationProfile in store is optimized/mapped.
-        // It might not index match exactly if we did any clever sampling.
-        // But for now let's check safety.
-        if (index < elevationProfile.length) {
-            eleString = `<ele>${elevationProfile[index].elevation}</ele>`;
+        gpxText += `      <trkpt lat="${lat}" lon="${lng}">`;
+        if (ele !== null) {
+            gpxText += `
+        <ele>${ele}</ele>
+      `;
         }
-
-        gpx += `      <trkpt lat="${lat}" lon="${lng}">${eleString}</trkpt>\n`;
+        gpxText += `</trkpt>
+`;
     });
 
-    gpx += `    </trkseg>
+    gpxText += `    </trkseg>
   </trk>
 </gpx>`;
 
-    return gpx;
+    return gpxText;
 };
 
 export const parseGpx = async (file: File): Promise<GeoJSON.FeatureCollection | null> => {

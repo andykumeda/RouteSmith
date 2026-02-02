@@ -1,13 +1,12 @@
 import { useRef, useEffect, useState } from 'react';
 import mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
-import { useRouteStore } from '../../store/useRouteStore';
+import { useRouteStore, type POIType, type Waypoint } from '../../store/useRouteStore';
 import { getCoordinateAtDistance, getDistanceAtCoordinate } from '../../lib/geoUtils';
 import MapStyleSwitcher from './MapStyleSwitcher';
 import type { MapStyle } from './MapStyleSwitcher';
 import { Play, Square, Droplets, TriangleAlert, CircleSlash, Camera, X, Trash2 } from 'lucide-react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import type { POIType } from '../../store/useRouteStore';
 
 mapboxgl.accessToken = import.meta.env.VITE_MAPBOX_TOKEN;
 
@@ -157,12 +156,13 @@ const MapComponent = () => {
     useEffect(() => {
         if (map.current) return;
 
-        map.current = new mapboxgl.Map({
+        const m = new mapboxgl.Map({
             container: mapContainer.current!,
             style: STYLE_URLS[mapStyle],
             center: [0, 20], // Default: Globe view
             zoom: 2,
         });
+        map.current = m;
 
         const nav = new mapboxgl.NavigationControl();
         map.current.addControl(nav, 'top-right');
@@ -195,14 +195,35 @@ const MapComponent = () => {
             }, 1000);
 
             map.current?.on('click', (e) => {
+                // Ensure the click was actually on the map canvas and not a marker/popup child
+                const target = e.originalEvent.target as HTMLElement;
+                if (target.closest('.mapboxgl-marker') ||
+                    target.closest('.mapboxgl-popup') ||
+                    target.closest('.mapboxgl-ctrl')) {
+                    return;
+                }
+
+                // If a popup is open, don't add a waypoint. Just let the click close the popup.
+                if (document.querySelector('.mapboxgl-popup')) {
+                    console.log('[MapClick] Blocked: Popup is open');
+                    return;
+                }
+
                 const state = useRouteStore.getState();
-                if (state.isReadOnly) return;
+                console.log('[MapClick] State check:', { isReadOnly: state.isReadOnly, isFetching: state.isFetching });
+
+                if (state.isReadOnly || state.isFetching) {
+                    console.warn('[MapClick] Blocked:', state.isReadOnly ? 'Read-only mode' : 'Fetching');
+                    return;
+                }
 
                 const poiType = selectedPOITypeRef.current;
                 if (poiType) {
+                    console.log('[MapClick] Adding POI:', poiType);
                     addPOI(e.lngLat.lng, e.lngLat.lat, poiType);
                     setSelectedPOIType(null); // Reset after placement
                 } else {
+                    console.log('[MapClick] Adding waypoint at:', e.lngLat);
                     addWaypoint(e.lngLat.lng, e.lngLat.lat);
                 }
             });
@@ -219,6 +240,13 @@ const MapComponent = () => {
             });
         });
 
+        // Cleanup
+        return () => {
+            if (map.current) {
+                map.current.remove();
+                map.current = null;
+            }
+        };
     }, []);
 
     // Handle Style Change
@@ -233,64 +261,102 @@ const MapComponent = () => {
     useEffect(() => {
         if (!map.current) return;
 
-        // Remove deleted markers
+        // Helper to update marker style/content
+        const updateMarkerStyle = (marker: mapboxgl.Marker, wp: Waypoint, index: number) => {
+            const el = marker.getElement();
+            let color = '#2563eb';
+            let iconMarkup = '';
+
+            if (wp.type === 'start') {
+                color = '#16a34a'; // green-600
+                iconMarkup = renderToStaticMarkup(<Play size={10} fill="white" className="ml-0.5" />);
+            } else if (wp.type === 'end') {
+                color = '#dc2626'; // red-600
+                iconMarkup = renderToStaticMarkup(<Square size={8} fill="white" />);
+            } else if (wp.type === 'poi') {
+                if (wp.poiType === 'water') {
+                    color = '#3b82f6'; // blue-500
+                    iconMarkup = renderToStaticMarkup(<Droplets size={12} className="text-white" />);
+                } else if (wp.poiType === 'hazard') {
+                    color = '#f59e0b'; // amber-500
+                    iconMarkup = renderToStaticMarkup(<TriangleAlert size={12} className="text-white" />);
+                } else if (wp.poiType === 'closed') {
+                    color = '#ef4444'; // red-500
+                    iconMarkup = renderToStaticMarkup(<CircleSlash size={12} className="text-white" />);
+                } else if (wp.poiType === 'camera') {
+                    color = '#a855f7'; // purple-500
+                    iconMarkup = renderToStaticMarkup(<Camera size={12} className="text-white" />);
+                } else {
+                    color = '#64748b'; // slate-500
+                }
+            }
+
+            el.style.backgroundColor = color;
+            if (iconMarkup) {
+                el.innerHTML = iconMarkup;
+            } else {
+                // Number label for route/generic poi
+                el.innerHTML = `<span class="text-white text-[10px] font-bold">${index + 1}</span>`;
+            }
+            marker.setDraggable(!isReadOnly);
+
+            console.log('[updateMarkerStyle]', {
+                type: wp.type,
+                poiType: wp.poiType,
+                color,
+                hasIcon: !!iconMarkup
+            });
+        };
+
+        // Filter waypoints to avoid duplicates at the same location
+        // Prioritize: start/end > POI > route
+        const visibleWaypoints = waypoints.filter((wp, _index, arr) => {
+            // Find all waypoints at this exact location
+            const duplicates = arr.filter(w =>
+                Math.abs(w.lat - wp.lat) < 0.00001 &&
+                Math.abs(w.lng - wp.lng) < 0.00001
+            );
+
+            if (duplicates.length === 1) return true;
+
+            // If multiple waypoints at same location, only show the highest priority one
+            const hasPriority = duplicates.some(d => d.type === 'start' || d.type === 'end');
+            if (hasPriority) {
+                return wp.type === 'start' || wp.type === 'end';
+            }
+
+            const hasPOI = duplicates.some(d => d.type === 'poi');
+            if (hasPOI) {
+                return wp.type === 'poi';
+            }
+
+            // If all are routing points, show the first one
+            return duplicates[0].id === wp.id;
+        });
+
+        console.log('[MapComponent] Total waypoints:', waypoints.length, 'Visible:', visibleWaypoints.length);
+        console.log('[MapComponent] Visible waypoints:', visibleWaypoints.map(wp => ({
+            id: wp.id.substring(0, 8),
+            type: wp.type,
+            poiType: wp.poiType
+        })));
+
+        // Remove markers that are no longer visible (either deleted or filtered out)
         Object.keys(markersRef.current).forEach(id => {
-            if (!waypoints.find(wp => wp.id === id)) {
+            if (!visibleWaypoints.find(wp => wp.id === id)) {
+                console.log('[MapComponent] Removing marker:', id.substring(0, 8));
                 markersRef.current[id].remove();
                 delete markersRef.current[id];
             }
         });
 
         // Add/Update markers
-        waypoints.forEach((wp, index) => {
-            if (wp.type === 'route') {
-                if (markersRef.current[wp.id]) {
-                    markersRef.current[wp.id].remove();
-                    delete markersRef.current[wp.id];
-                }
-                return;
-            }
+        visibleWaypoints.forEach((wp) => {
+            const originalIndex = waypoints.findIndex(w => w.id === wp.id);
 
             if (!markersRef.current[wp.id]) {
-                const el = document.createElement('div');
-                let color = '#2563eb';
-                let iconMarkup = '';
-
-                if (wp.type === 'start') {
-                    color = '#16a34a'; // green-600
-                    iconMarkup = renderToStaticMarkup(<Play size={10} fill="white" className="ml-0.5" />);
-                } else if (wp.type === 'end') {
-                    color = '#dc2626'; // red-600
-                    iconMarkup = renderToStaticMarkup(<Square size={8} fill="white" />);
-                } else if (wp.type === 'poi') {
-                    if (wp.poiType === 'water') {
-                        color = '#3b82f6'; // blue-500
-                        iconMarkup = renderToStaticMarkup(<Droplets size={12} className="text-white" />);
-                    } else if (wp.poiType === 'hazard') {
-                        color = '#f59e0b'; // amber-500
-                        iconMarkup = renderToStaticMarkup(<TriangleAlert size={12} className="text-white" />);
-                    } else if (wp.poiType === 'closed') {
-                        color = '#ef4444'; // red-500
-                        iconMarkup = renderToStaticMarkup(<CircleSlash size={12} className="text-white" />);
-                    } else if (wp.poiType === 'camera') {
-                        color = '#a855f7'; // purple-500
-                        iconMarkup = renderToStaticMarkup(<Camera size={12} className="text-white" />);
-                    } else {
-                        // Generic POI
-                        color = '#64748b'; // slate-500
-                        el.innerText = (index + 1).toString();
-                        el.className = 'text-white text-[10px] font-bold';
-                    }
-                } else {
-                    el.innerText = (index + 1).toString();
-                    el.className = 'text-white text-[10px] font-bold';
-                }
-
                 const container = document.createElement('div');
                 container.className = `w-6 h-6 rounded-full border-2 border-white shadow-lg flex items-center justify-center transition-transform hover:scale-110 cursor-pointer`;
-                container.style.backgroundColor = color;
-                if (iconMarkup) container.innerHTML = iconMarkup;
-                else container.appendChild(el);
 
                 const marker = new mapboxgl.Marker({
                     element: container,
@@ -298,6 +364,8 @@ const MapComponent = () => {
                 })
                     .setLngLat([wp.lng, wp.lat])
                     .addTo(map.current!);
+
+                updateMarkerStyle(marker, wp, originalIndex);
 
                 // Handle Dragging
                 marker.on('dragend', () => {
@@ -348,6 +416,13 @@ const MapComponent = () => {
                     popupNode.insertAdjacentHTML('beforeend', standardHtml);
                 }
 
+                // Add Done button for better UX
+                popupNode.insertAdjacentHTML('beforeend', `
+                    <button class="done-wp-btn w-full mt-2 py-2 bg-blue-600 text-white text-[10px] uppercase tracking-wider font-bold rounded-lg hover:bg-blue-700 transition-all shadow-sm active:scale-95">
+                        Done & Save
+                    </button>
+                `);
+
                 const deleteBtn = popupNode.querySelector('.delete-wp-btn')!;
                 deleteBtn.addEventListener('click', (e) => {
                     e.stopPropagation();
@@ -397,22 +472,32 @@ const MapComponent = () => {
                     dateInput.addEventListener('change', updateMetadata);
                 }
 
-                const popup = new mapboxgl.Popup({ offset: 15, closeButton: false })
+                const popup = new mapboxgl.Popup({ offset: 15, closeButton: false, closeOnClick: true })
                     .setDOMContent(popupNode);
 
                 marker.setPopup(popup);
 
-                // Override and handle tool-based deletion
+                // Handle Done button
+                const doneBtn = popupNode.querySelector('.done-wp-btn')!;
+                doneBtn.addEventListener('click', () => {
+                    popup.remove();
+                });
+
+                // Handle marker click (popup or deletion)
                 container.addEventListener('click', (e) => {
+                    e.stopPropagation();
                     if (isDeleteModeRef.current) {
-                        e.stopPropagation();
                         removeWaypoint(wp.id);
+                    } else {
+                        marker.togglePopup();
                     }
                 });
 
                 markersRef.current[wp.id] = marker;
             } else {
-                markersRef.current[wp.id].setLngLat([wp.lng, wp.lat]);
+                const marker = markersRef.current[wp.id];
+                marker.setLngLat([wp.lng, wp.lat]);
+                updateMarkerStyle(marker, wp, originalIndex);
             }
         });
     }, [waypoints, isReadOnly]);

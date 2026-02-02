@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
 import { useAuthStore } from '../../store/useAuthStore';
 import { useRouteStore } from '../../store/useRouteStore';
+import { useSettingsStore } from '../../store/useSettingsStore';
 import { mockService } from '../../lib/mockService';
 import type { RouteData } from '../../lib/mockService';
-import { Loader2, Trash2, Map, Globe, Lock, ArrowRight } from 'lucide-react';
+import { Loader2, Trash2, Map, Globe, Lock, ArrowRight, Calendar } from 'lucide-react';
 
 interface RouteDashboardProps {
     isOpen: boolean;
@@ -12,7 +13,8 @@ interface RouteDashboardProps {
 
 export default function RouteDashboard({ isOpen, onClose }: RouteDashboardProps) {
     const { user } = useAuthStore();
-    const { setRouteFromImport } = useRouteStore();
+    const { loadFullRoute } = useRouteStore();
+    const { units } = useSettingsStore();
     const [routes, setRoutes] = useState<RouteData[]>([]);
     const [isLoading, setIsLoading] = useState(false);
 
@@ -41,8 +43,35 @@ export default function RouteDashboard({ isOpen, onClose }: RouteDashboardProps)
     };
 
     const loadRoute = (route: RouteData) => {
-        setRouteFromImport(route.fullGeoJson);
+        console.log('[RouteDashboard] Loading route from dashboard:', {
+            id: route.id,
+            name: route.name,
+            waypoints: route.waypoints?.length,
+            segments: route.segments?.length,
+            hasGeoJson: !!route.fullGeoJson,
+            geoJsonFeatures: route.fullGeoJson?.features?.length
+        });
+        loadFullRoute(route);
         onClose();
+    };
+
+    const formatDistance = (meters: number) => {
+        if (units === 'metric') {
+            return `${(meters / 1000).toFixed(1)} km`;
+        }
+        return `${(meters / 1609.34).toFixed(1)} mi`;
+    };
+
+    const formatElevation = (meters: number) => {
+        if (units === 'metric') {
+            return `${Math.round(meters)} m gain`;
+        }
+        return `${Math.round(meters * 3.28084)} ft gain`;
+    };
+
+    const formatTimestamp = (dateStr: string) => {
+        const date = new Date(dateStr);
+        return date.toLocaleDateString() + ' at ' + date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     };
 
     if (!isOpen) return null;
@@ -91,16 +120,19 @@ export default function RouteDashboard({ isOpen, onClose }: RouteDashboardProps)
                                                 </span>
                                             )}
                                         </div>
-                                        <div className="text-xs text-gray-500 flex items-center gap-3">
-                                            <span>{(route.distance / 1000).toFixed(1)} km</span>
-                                            <span>•</span>
-                                            <span>{Math.round(route.elevationGain)} m gain</span>
-                                            <span>•</span>
-                                            <span>{new Date(route.createdAt).toLocaleDateString()}</span>
+                                        <div className="text-xs text-gray-500 flex flex-wrap items-center gap-2">
+                                            <span className="font-medium text-slate-700">{formatDistance(route.distance)}</span>
+                                            <span className="text-gray-300">•</span>
+                                            <span className="font-medium text-slate-700">{formatElevation(route.elevationGain)}</span>
+                                            <span className="text-gray-300">•</span>
+                                            <span className="flex items-center gap-1">
+                                                <Calendar size={12} />
+                                                {formatTimestamp(route.updatedAt || route.createdAt)}
+                                            </span>
                                             {route.startLocation && (
                                                 <>
-                                                    <span>•</span>
-                                                    <span>{route.startLocation}</span>
+                                                    <span className="text-gray-300">•</span>
+                                                    <span className="truncate max-w-[150px]">{route.startLocation}</span>
                                                 </>
                                             )}
                                         </div>
