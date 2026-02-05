@@ -320,7 +320,13 @@ const MapComponent = ({ isSidebarOpen }: { isSidebarOpen: boolean }) => {
 
         // Filter waypoints to avoid duplicates at the same location
         // Prioritize: start/end > POI > route
+        // For NEW routes (routeId is null), hide intermediate 'route' waypoints
         const visibleWaypoints = waypoints.filter((wp, _index, arr) => {
+            // When plotting a new route, only show start, end, and POI markers
+            if (!routeId && wp.type === 'route') {
+                return false;
+            }
+
             // Find all waypoints at this exact location
             const duplicates = arr.filter(w =>
                 Math.abs(w.lat - wp.lat) < 0.00001 &&
