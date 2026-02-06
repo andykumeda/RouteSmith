@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { X, User, MapPin, Ruler, Check, Loader2 } from 'lucide-react';
+import { X, User, MapPin, Ruler, Check, Loader2, Moon } from 'lucide-react';
 import { useAuthStore } from '../../store/useAuthStore';
 import { useSettingsStore } from '../../store/useSettingsStore';
 
@@ -10,7 +10,7 @@ interface SettingsModalProps {
 
 export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     const { user, updateProfile, isLoading } = useAuthStore();
-    const { units, toggleUnits } = useSettingsStore();
+    const { units, toggleUnits, theme, setTheme } = useSettingsStore();
 
     const [activeTab, setActiveTab] = useState<'profile' | 'preferences'>('profile');
     const [username, setUsername] = useState('');
@@ -44,27 +44,27 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-            <div className="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in-95 duration-200 flex flex-col max-h-[90vh]">
+            <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in-95 duration-200 flex flex-col max-h-[90vh]">
 
                 {/* Header */}
-                <div className="flex items-center justify-between p-4 border-b border-gray-100">
-                    <h2 className="text-lg font-bold text-gray-800">Settings</h2>
-                    <button onClick={onClose} className="p-2 text-gray-400 hover:bg-gray-100 rounded-full transition-colors">
+                <div className="flex items-center justify-between p-4 border-b border-gray-100 dark:border-gray-700">
+                    <h2 className="text-lg font-bold text-gray-800 dark:text-gray-100">Settings</h2>
+                    <button onClick={onClose} className="p-2 text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full transition-colors">
                         <X size={20} />
                     </button>
                 </div>
 
                 {/* Tabs */}
-                <div className="flex border-b border-gray-100">
+                <div className="flex border-b border-gray-100 dark:border-gray-700">
                     <button
                         onClick={() => setActiveTab('profile')}
-                        className={`flex-1 py-3 text-sm font-semibold transition-colors border-b-2 ${activeTab === 'profile' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+                        className={`flex-1 py-3 text-sm font-semibold transition-colors border-b-2 ${activeTab === 'profile' ? 'border-blue-600 text-blue-600 dark:text-blue-400 dark:border-blue-400' : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'}`}
                     >
                         Profile
                     </button>
                     <button
                         onClick={() => setActiveTab('preferences')}
-                        className={`flex-1 py-3 text-sm font-semibold transition-colors border-b-2 ${activeTab === 'preferences' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+                        className={`flex-1 py-3 text-sm font-semibold transition-colors border-b-2 ${activeTab === 'preferences' ? 'border-blue-600 text-blue-600 dark:text-blue-400 dark:border-blue-400' : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'}`}
                     >
                         Preferences
                     </button>
@@ -139,28 +139,62 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                         )
                     ) : (
                         <div className="space-y-6">
-                            <div className="flex items-center justify-between p-4 bg-gray-50 rounded-xl border border-gray-100">
+                            {/* Units Toggle */}
+                            <div className="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-700 rounded-xl border border-gray-100 dark:border-gray-600">
                                 <div className="flex items-center gap-3">
-                                    <div className="p-2 bg-white rounded-lg shadow-sm text-gray-600">
+                                    <div className="p-2 bg-white dark:bg-gray-600 rounded-lg shadow-sm text-gray-600 dark:text-gray-200">
                                         <Ruler size={20} />
                                     </div>
                                     <div>
-                                        <h3 className="font-semibold text-gray-800">Units</h3>
-                                        <p className="text-xs text-gray-500">Display distances in:</p>
+                                        <h3 className="font-semibold text-gray-800 dark:text-gray-100">Units</h3>
+                                        <p className="text-xs text-gray-500 dark:text-gray-400">Display distances in:</p>
                                     </div>
                                 </div>
-                                <div className="flex items-center bg-gray-200 rounded-lg p-1">
+                                <div className="flex items-center bg-gray-200 dark:bg-gray-600 rounded-lg p-1">
                                     <button
                                         onClick={() => units !== 'imperial' && toggleUnits()}
-                                        className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all ${units === 'imperial' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                                        className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all ${units === 'imperial' ? 'bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 shadow-sm' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'}`}
                                     >
                                         Imperial
                                     </button>
                                     <button
                                         onClick={() => units !== 'metric' && toggleUnits()}
-                                        className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all ${units === 'metric' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                                        className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all ${units === 'metric' ? 'bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 shadow-sm' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'}`}
                                     >
                                         Metric
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* Theme Toggle */}
+                            <div className="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-700 rounded-xl border border-gray-100 dark:border-gray-600">
+                                <div className="flex items-center gap-3">
+                                    <div className="p-2 bg-white dark:bg-gray-600 rounded-lg shadow-sm text-gray-600 dark:text-gray-200">
+                                        <Moon size={20} />
+                                    </div>
+                                    <div>
+                                        <h3 className="font-semibold text-gray-800 dark:text-gray-100">Theme</h3>
+                                        <p className="text-xs text-gray-500 dark:text-gray-400">Choose appearance:</p>
+                                    </div>
+                                </div>
+                                <div className="flex items-center bg-gray-200 dark:bg-gray-600 rounded-lg p-1">
+                                    <button
+                                        onClick={() => setTheme('light')}
+                                        className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all ${theme === 'light' ? 'bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 shadow-sm' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'}`}
+                                    >
+                                        Light
+                                    </button>
+                                    <button
+                                        onClick={() => setTheme('system')}
+                                        className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all ${theme === 'system' ? 'bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 shadow-sm' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'}`}
+                                    >
+                                        System
+                                    </button>
+                                    <button
+                                        onClick={() => setTheme('dark')}
+                                        className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all ${theme === 'dark' ? 'bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 shadow-sm' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'}`}
+                                    >
+                                        Dark
                                     </button>
                                 </div>
                             </div>
