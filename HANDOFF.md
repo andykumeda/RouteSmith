@@ -65,8 +65,9 @@ RouteSmith is a **production-ready** hiking route planning application with full
 
 #### UI/UX Improvements
 - **New Route Button**: Added (+) button to start fresh routes from any state
-- **Sidebar Collapse**: Fixed overflow issue preventing proper collapse animation
-- **Logo Update**: Changed from PNG to SVG format
+- **Sidebar Collapse**: Fixed overflow issue preventing proper proper collapse animation
+- **Logo Update**: Changed from PNG to SVG format. Updated branding text color to `#cd591c`.
+- **Theming**: Implemented full **Light/Dark Mode** (Phase 13) with system preference detection and persistent storage. Applied to all UI components including charts and maps.
 
 #### Build & Deployment
 - **TypeScript Errors**: Fixed unused imports and variables blocking production builds

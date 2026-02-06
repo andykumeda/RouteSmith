@@ -8,7 +8,8 @@
 - **Intelligent Routing**: Automatic path snapping using Mapbox Directions API with manual mode toggle
 - **Elevation Profiles**: High-resolution elevation charts with synchronized hover tracking between map and chart
 - **POI Markers**: Add custom waypoints for water sources, hazards, trail closures, and photo opportunities
-- **Unit Support**: Seamless switching between Metric (km/m) and Imperial (mi/ft) units
+- **Use Your Way**: **Light/Dark Mode** support with automatic system preference detection
+- **Unit Support**: Seamless switching between (km/m) and (mi/ft) units
 - **User Authentication**: Secure signup/login powered by Supabase Auth
 - **Route Persistence**: Save, edit, and manage routes in Supabase PostgreSQL with PostGIS
 - **Route Sharing**: Share routes via deep links with read-only viewing mode
@@ -167,6 +168,7 @@ See [HANDOFF.md](HANDOFF.md) for detailed implementation status and pending feat
 - ✅ GPX import/export
 - ✅ POI markers with photos
 - ✅ Manual/Auto routing toggle
+- ✅ **Light/Dark Mode** support
 
 ### Planned
 - 🔄 Route collections (wishlists, completed)
