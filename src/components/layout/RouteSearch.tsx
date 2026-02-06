@@ -59,9 +59,9 @@ export const RouteSearch = ({ onSelectRoute }: RouteSearchProps) => {
     };
 
     return (
-        <div className="flex flex-col h-full bg-slate-50">
+        <div className="flex flex-col h-full bg-slate-50 dark:bg-gray-900">
             {/* Search Header */}
-            <div className="p-4 bg-white border-b border-gray-200 shadow-sm sticky top-0 z-10">
+            <div className="p-4 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 shadow-sm sticky top-0 z-10">
                 <div className="relative mb-3">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
                     <input
@@ -69,14 +69,14 @@ export const RouteSearch = ({ onSelectRoute }: RouteSearchProps) => {
                         value={query}
                         onChange={(e) => setQuery(e.target.value)}
                         placeholder="Search routes, locations..."
-                        className="w-full pl-10 pr-4 py-2 bg-gray-100 border-none rounded-lg focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all outline-none text-sm font-medium"
+                        className="w-full pl-10 pr-4 py-2 bg-gray-100 dark:bg-gray-700 border-none rounded-lg focus:ring-2 focus:ring-blue-500 focus:bg-white dark:focus:bg-gray-600 transition-all outline-none text-sm font-medium text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400"
                     />
                 </div>
 
                 {/* Filter Toggle */}
                 <button
                     onClick={() => setShowFilters(!showFilters)}
-                    className="flex items-center gap-1 text-xs font-semibold text-gray-500 hover:text-blue-600 transition-colors"
+                    className="flex items-center gap-1 text-xs font-semibold text-gray-500 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
                 >
                     {showFilters ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
                     {showFilters ? 'Hide Filters' : 'Show Filters'}
@@ -84,13 +84,13 @@ export const RouteSearch = ({ onSelectRoute }: RouteSearchProps) => {
 
                 {/* Filters Area */}
                 {showFilters && (
-                    <div className="mt-3 pt-3 border-t border-gray-100 grid grid-cols-2 gap-3 animate-in fade-in slide-in-from-top-1">
+                    <div className="mt-3 pt-3 border-t border-gray-100 dark:border-gray-700 grid grid-cols-2 gap-3 animate-in fade-in slide-in-from-top-1">
                         <div>
-                            <span className="block text-[10px] font-bold text-gray-400 uppercase mb-1">Distance</span>
+                            <span className="block text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase mb-1">Distance</span>
                             <select
                                 value={distFilter}
                                 onChange={(e) => setDistFilter(e.target.value as any)}
-                                className="w-full text-xs p-1.5 rounded border border-gray-200 bg-gray-50 focus:border-blue-500 outline-none"
+                                className="w-full text-xs p-1.5 rounded border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 text-gray-700 dark:text-gray-200 focus:border-blue-500 outline-none"
                             >
                                 <option value="any">Any Distance</option>
                                 <option value="short">Short (&lt; 5km)</option>
@@ -99,11 +99,11 @@ export const RouteSearch = ({ onSelectRoute }: RouteSearchProps) => {
                             </select>
                         </div>
                         <div>
-                            <span className="block text-[10px] font-bold text-gray-400 uppercase mb-1">Elevation</span>
+                            <span className="block text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase mb-1">Elevation</span>
                             <select
                                 value={elevFilter}
                                 onChange={(e) => setElevFilter(e.target.value as any)}
-                                className="w-full text-xs p-1.5 rounded border border-gray-200 bg-gray-50 focus:border-blue-500 outline-none"
+                                className="w-full text-xs p-1.5 rounded border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 text-gray-700 dark:text-gray-200 focus:border-blue-500 outline-none"
                             >
                                 <option value="any">Any Elevation</option>
                                 <option value="flat">Flat (&lt; 100m)</option>
@@ -126,22 +126,22 @@ export const RouteSearch = ({ onSelectRoute }: RouteSearchProps) => {
                         <div
                             key={route.id}
                             onClick={() => onSelectRoute(route)}
-                            className="bg-white p-3 rounded-lg border border-gray-200 hover:border-blue-300 hover:shadow-md transition-all cursor-pointer group"
+                            className="bg-white dark:bg-gray-800 p-3 rounded-lg border border-gray-200 dark:border-gray-700 hover:border-blue-300 dark:hover:border-blue-500 hover:shadow-md transition-all cursor-pointer group"
                         >
-                            <h3 className="font-bold text-gray-800 group-hover:text-blue-600 transition-colors mb-1">{route.name}</h3>
+                            <h3 className="font-bold text-gray-800 dark:text-gray-100 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors mb-1">{route.name}</h3>
 
-                            <div className="flex items-center gap-1 text-xs text-gray-500 mb-2">
+                            <div className="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400 mb-2">
                                 <MapPin size={12} className="shrink-0" />
                                 <span className="truncate">{route.startLocation || 'Unknown Location'}</span>
                             </div>
 
-                            <div className="flex items-center gap-4 border-t border-gray-50 pt-2">
-                                <span className="flex items-center gap-1 text-xs font-semibold text-gray-700">
-                                    <Ruler size={12} className="text-gray-400" />
+                            <div className="flex items-center gap-4 border-t border-gray-50 dark:border-gray-700 pt-2">
+                                <span className="flex items-center gap-1 text-xs font-semibold text-gray-700 dark:text-gray-300">
+                                    <Ruler size={12} className="text-gray-400 dark:text-gray-500" />
                                     {formatDist(route.distance)}
                                 </span>
-                                <span className="flex items-center gap-1 text-xs font-semibold text-gray-700">
-                                    <Mountain size={12} className="text-gray-400" />
+                                <span className="flex items-center gap-1 text-xs font-semibold text-gray-700 dark:text-gray-300">
+                                    <Mountain size={12} className="text-gray-400 dark:text-gray-500" />
                                     {formatElev(route.elevationGain)}
                                 </span>
                             </div>

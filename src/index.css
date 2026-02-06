@@ -1,3 +1,25 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer base {
+  :root {
+    --chart-stroke: #2563eb;
+    --chart-fill: #3b82f6;
+    --chart-grid: #e5e7eb;
+    --chart-text: #6b7280;
+    --chart-tooltip-bg: #ffffff;
+    --chart-tooltip-border: #e5e7eb;
+    --chart-tooltip-text: #1f2937;
+  }
+
+  .dark {
+    --chart-stroke: #60a5fa;
+    --chart-fill: #3b82f6;
+    --chart-grid: #374151;
+    --chart-text: #9ca3af;
+    --chart-tooltip-bg: #1f2937;
+    --chart-tooltip-border: #374151;
+    --chart-tooltip-text: #f3f4f6;
+  }
+}

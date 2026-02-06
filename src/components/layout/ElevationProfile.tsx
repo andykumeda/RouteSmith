@@ -28,8 +28,8 @@ const ElevationProfile: React.FC<ElevationProfileProps> = ({ data }) => {
 
     if (!data || data.length === 0) {
         return (
-            <div className="h-40 flex items-center justify-center bg-gray-50 rounded-lg border border-dashed border-gray-300">
-                <span className="text-gray-400 text-sm">No elevation data available</span>
+            <div className="h-40 flex items-center justify-center bg-gray-50 dark:bg-gray-800 rounded-lg border border-dashed border-gray-300 dark:border-gray-600">
+                <span className="text-gray-400 dark:text-gray-500 text-sm">No elevation data available</span>
             </div>
         );
     }
@@ -75,28 +75,37 @@ const ElevationProfile: React.FC<ElevationProfileProps> = ({ data }) => {
                     onMouseMove={handleMouseMove}
                     onMouseLeave={handleMouseLeave}
                 >
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--chart-grid)" />
                     <XAxis
                         dataKey="dist"
-                        tick={{ fontSize: 10 }}
+                        tick={{ fontSize: 10, fill: 'var(--chart-text)' }}
                         tickFormatter={(val) => `${val}${units === 'metric' ? 'km' : 'mi'}`}
                         minTickGap={30}
+                        stroke="var(--chart-grid)"
                     />
                     <YAxis
                         width={40}
-                        tick={{ fontSize: 10 }}
+                        tick={{ fontSize: 10, fill: 'var(--chart-text)' }}
                         domain={['auto', 'auto']}
+                        stroke="var(--chart-grid)"
                     />
                     <Tooltip
-                        contentStyle={{ fontSize: '12px', padding: '5px' }}
+                        contentStyle={{
+                            fontSize: '12px',
+                            padding: '5px',
+                            backgroundColor: 'var(--chart-tooltip-bg)',
+                            borderColor: 'var(--chart-tooltip-border)',
+                            color: 'var(--chart-tooltip-text)'
+                        }}
+                        itemStyle={{ color: 'var(--chart-tooltip-text)' }}
                         formatter={(value: any) => [`${value}${units === 'metric' ? 'm' : 'ft'}`, 'Elevation']}
                         labelFormatter={(label: any) => `Distance: ${label}${units === 'metric' ? 'km' : 'mi'}`}
                     />
                     <Area
                         type="monotone"
                         dataKey="elevation"
-                        stroke="#2563eb"
-                        fill="#3b82f6"
+                        stroke="var(--chart-stroke)"
+                        fill="var(--chart-fill)"
                         fillOpacity={0.3}
                     />
                     {hoveredDistance !== null && (

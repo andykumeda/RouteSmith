@@ -250,7 +250,7 @@ function App() {
               <img src="/logo.png" alt="RouteSmith" className="w-8 h-8 object-contain" />
               <h1 className="text-xl font-bold">
                 <span className="bg-gradient-to-r from-blue-700 to-blue-500 bg-clip-text text-transparent">Route</span>
-                <span className="text-[#D85A28]">Smith</span>
+                <span className="text-[#cd591c]">Smith</span>
               </h1>
             </div>
             <p className="text-xs text-gray-400 dark:text-gray-500 font-medium tracking-wide ml-10 -mt-1">Craft Your Route</p>
